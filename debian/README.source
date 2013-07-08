@@ -1,9 +1,8 @@
 zurl for Debian
 ---------------
 
-<this file describes information about the source package, see Debian policy
-manual section 4.14. You WILL either need to modify or delete this file>
+As there is no released tarball of zurl, yet, the orig tarball was created
+manually by downloading git version 8fff93d from git://github.com/fanout/zurl.git
 
-
-
+This also includes the git submodules src/common and src/qzmq.
 

@@ -1,2 +1,0 @@
-?package(zurl):needs="X11|text|vc|wm" section="Applications/see-menu-manual"\
-  title="zurl" command="/usr/bin/zurl"

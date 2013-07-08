@@ -10,4 +10,7 @@
 #export DH_VERBOSE=1
 
 %:
-	dh $@  --with autotools-dev
+	dh $@
+
+override_dh_auto_configure:
+	./configure --prefix=/usr --verbose
