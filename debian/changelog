@@ -1,11 +1,11 @@
-zurl (1.0~20130724-1) unstable; urgency=low
+zurl (1.0~20130725-1) unstable; urgency=low
 
   * Update upstream version.
     - use libcurl to do http requests
     - bugfixes
     - add openssl linking exception to license
 
- -- Jan Niehusmann <jan@debian.org>  Tue, 23 Jul 2013 21:26:14 +0200
+ -- Jan Niehusmann <jan@debian.org>  Tue, 31 Jul 2013 08:26:14 +0200
 
 zurl (1.0~20130704-1) unstable; urgency=low
 
