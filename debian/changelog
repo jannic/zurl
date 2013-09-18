@@ -1,3 +1,11 @@
+zurl (1.0.0-1) unstable; urgency=low
+
+  * New upstream release
+    - Change in network protocol:
+      prefix all packets with T to indicate tnetstring
+
+ -- Jan Niehusmann <jan@debian.org>  Wed, 18 Sep 2013 14:51:23 +0200
+
 zurl (1.0~20130725-1) unstable; urgency=low
 
   * Update upstream version.
