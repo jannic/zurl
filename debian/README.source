@@ -1,8 +1,5 @@
 zurl for Debian
 ---------------
 
-As there is no released tarball of zurl, yet, the orig tarball was created
-from the upstream git at git://github.com/fanout/zurl.git
-
-This also includes the git submodules src/common and src/qzmq.
-
+Zurl 1.3.0 was downloaded from http://packages.fanout.io/source/zurl-1.3.0.tar.bz2
+on Feb 14, 2014.
