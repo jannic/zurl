@@ -1,6 +1,6 @@
 import sys
 import uuid
-import tnetstring
+import json
 import zmq
 
 if len(sys.argv) < 2:
@@ -16,9 +16,9 @@ req['id'] = str(uuid.uuid4())
 req['method'] = 'GET'
 req['uri'] = sys.argv[1]
 #req['ignore-tls-errors'] = True
-sock.send('T' + tnetstring.dumps(req))
+sock.send('J' + json.dumps(req))
 
-resp = tnetstring.loads(sock.recv()[1:])
+resp = json.loads(sock.recv()[1:])
 if 'type' in resp and resp['type'] == 'error':
 	print 'error: %s' % resp['condition']
 	sys.exit(1)

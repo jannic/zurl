@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2013 Fanout, Inc.
+ * Copyright (C) 2014 Fanout, Inc.
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,8 +15,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef HTTPREQUEST_H
-#define HTTPREQUEST_H
+#ifndef WEBSOCKET_H
+#define WEBSOCKET_H
 
 #include <QObject>
 #include "httpheaders.h"
@@ -25,11 +25,19 @@ class QHostAddress;
 class QUrl;
 class JDnsShared;
 
-class HttpRequest : public QObject
+class WebSocket : public QObject
 {
 	Q_OBJECT
 
 public:
+	enum State
+	{
+		Idle,
+		Connecting,
+		Connected,
+		Closing
+	};
+
 	enum ErrorCondition
 	{
 		ErrorNone,
@@ -37,42 +45,67 @@ public:
 		ErrorPolicy,
 		ErrorConnect,
 		ErrorTls,
-		ErrorTimeout,
-		ErrorBodyNotAllowed
+		ErrorRejected,
+		ErrorFrameTooLarge,
+		ErrorTimeout
 	};
 
-	HttpRequest(JDnsShared *dns, QObject *parent = 0);
-	~HttpRequest();
+	class Frame
+	{
+	public:
+		enum Type
+		{
+			Continuation,
+			Text,
+			Binary,
+			Ping,
+			Pong
+		};
+
+		Type type;
+		QByteArray data;
+		bool more;
+
+		Frame(Type _type, const QByteArray &_data, bool _more) :
+			type(_type),
+			data(_data),
+			more(_more)
+		{
+		}
+	};
+
+	WebSocket(JDnsShared *dns, QObject *parent = 0);
+	~WebSocket();
 
 	void setConnectHost(const QString &host);
 	void setIgnoreTlsErrors(bool on);
+	void setMaxFrameSize(int size);
 
-	void start(const QString &method, const QUrl &uri, const HttpHeaders &headers = HttpHeaders());
+	void start(const QUrl &uri, const HttpHeaders &headers = HttpHeaders());
 
-	// may call this multiple times
-	void writeBody(const QByteArray &body);
-
-	void endBody();
-
-	int bytesAvailable() const;
-	bool isFinished() const;
-	ErrorCondition errorCondition() const;
-
+	State state() const;
 	int responseCode() const;
 	QByteArray responseReason() const;
 	HttpHeaders responseHeaders() const;
+	int framesAvailable() const;
+	int nextFrameSize() const;
+	int peerCloseCode() const;
+	ErrorCondition errorCondition() const;
 
-	QByteArray readResponseBody(int size = -1); // takes from the buffer
+	void writeFrame(const Frame &frame);
+	Frame readFrame();
+	void close(int code = -1);
 
 signals:
 	void nextAddress(const QHostAddress &addr);
+	void connected();
 	void readyRead();
-	void bytesWritten(int count);
+	void framesWritten(int count);
+	void peerClosing(); // emitted only if peer closes before we do
+	void closed(); // emitted after peer acks our close, or immediately if we were acking
 	void error();
 
 private:
-	class ReqBodyDevice;
-
 	class Private;
 	friend class Private;
 	Private *d;

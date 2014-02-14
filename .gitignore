@@ -8,7 +8,12 @@ ui_*
 moc_*
 *.pyc
 /Makefile
-conf.log
-conf.pri
-zurl
-src/Makefile
+/conf.log
+/conf.pri
+/zurl
+/src/pro/libzurl/Makefile
+/src/pro/zurl/Makefile
+/src/libzurl.a
+/tests/Makefile
+/tests/pro/*/Makefile
+/tests/*test
