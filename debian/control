@@ -3,7 +3,7 @@ Section: net
 Priority: extra
 Maintainer: Jan Niehusmann <jan@debian.org>
 Build-Depends: debhelper (>= 8.0.0), libqt4-dev (>= 4.7), libzmq3-dev (>= 2.0), pkg-config, hardening-wrapper, libcurl4-openssl-dev, libqjson-dev
-Standards-Version: 3.9.4
+Standards-Version: 3.9.5
 Homepage: https://github.com/fanout/zurl/
 Vcs-Git: git://git.debian.org/users/jan/zurl.git
 Vcs-Browser: http://git.debian.org/?p=users/jan/zurl.git;a=summary
