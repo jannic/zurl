@@ -1,3 +1,9 @@
+zurl (1.3.0-2) UNRELEASED; urgency=low
+
+  * Add start script and config.
+
+ -- Jan Niehusmann <jan@debian.org>  Mon, 16 Jun 2014 22:41:04 +0200
+
 zurl (1.3.0-1) unstable; urgency=low
 
   * new upstream release

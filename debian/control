@@ -10,7 +10,7 @@ Vcs-Browser: http://git.debian.org/?p=users/jan/zurl.git;a=summary
 
 Package: zurl
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser
 Description: HTTP client worker with ZeroMQ interface
  This service allows one to trigger HTTP requests and to retrieve
  the responses via ZeroMQ.
