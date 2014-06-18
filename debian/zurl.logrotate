@@ -1,0 +1,14 @@
+/var/log/zurl.log {
+        daily
+        missingok
+        rotate 7
+        postrotate
+                if [ -e /var/run/zurl.pid ]; then
+			kill -HUP $(cat /var/run/zurl.pid)
+                fi
+        endscript
+        compress
+        notifempty
+        create 644 zurl zurl
+}
+
