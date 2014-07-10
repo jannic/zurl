@@ -1,2 +1,7 @@
 include(../../tests.pri)
 SOURCES += $$TESTS_DIR/httprequesttest.cpp
+
+QMAKE_CXXFLAGS += $(Q_CXXFLAGS)
+QMAKE_CFLAGS_DEBUG += $(Q_CFLAGS)
+QMAKE_CFLAGS_RELEASE += $(Q_CFLAGS)
+QMAKE_LFLAGS += $(Q_LDFLAGS)

@@ -1,6 +1,7 @@
 zurl (1.3.0-3) UNRELEASED; urgency=low
 
   * Update Vcs URL
+  * Implement hardening using buildflags instead of hardening-wrapper
 
  -- Jan Niehusmann <jan@debian.org>  Wed, 09 Jul 2014 14:45:30 +0200
 
