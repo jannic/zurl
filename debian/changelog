@@ -1,4 +1,4 @@
-zurl (1.3.0-3) UNRELEASED; urgency=low
+zurl (1.3.0-3) unstable; urgency=low
 
   * Update Vcs URL
   * Implement hardening using buildflags instead of hardening-wrapper
@@ -6,7 +6,7 @@ zurl (1.3.0-3) UNRELEASED; urgency=low
   * Add postrm script to remove /var/log/zurl.log on purge
   * Add prerm script to stop service when removing the package
 
- -- Jan Niehusmann <jan@debian.org>  Wed, 09 Jul 2014 14:45:30 +0200
+ -- Jan Niehusmann <jan@debian.org>  Thu, 10 Jul 2014 22:33:24 +0200
 
 zurl (1.3.0-2) unstable; urgency=low
 
