@@ -22,7 +22,7 @@
 #include <QPointer>
 #include <QUrl>
 #include <curl/curl.h>
-#include "jdnsshared.h"
+#include "qjdnsshared.h"
 #include "bufferlist.h"
 #include "log.h"
 
@@ -40,6 +40,15 @@ static const char *socketActionToString(int x)
 		case CURL_POLL_OUT:    return "CURL_POLL_OUT";
 		case CURL_POLL_INOUT:  return "CURL_POLL_INOUT";
 		case CURL_POLL_REMOVE: return "CURL_POLL_REMOVE";
+		default: return 0;
+	}
+}
+
+static const char *msgToString(int x)
+{
+	switch(x)
+	{
+		case CURLMSG_DONE: return "CURLMSG_DONE";
 		default: return 0;
 	}
 }
@@ -126,13 +135,11 @@ public:
 		if(method == "OPTIONS")
 		{
 			expectBody = false;
-			curl_easy_setopt(easy, CURLOPT_NOBODY, 1);
 			curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "OPTIONS");
 		}
 		else if(method == "HEAD")
 		{
 			expectBody = false;
-			curl_easy_setopt(easy, CURLOPT_NOBODY, 1);
 			curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, NULL);
 		}
 		else if(method == "GET")
@@ -158,7 +165,6 @@ public:
 		else if(method == "DELETE")
 		{
 			expectBody = false;
-			curl_easy_setopt(easy, CURLOPT_NOBODY, 1);
 			curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
 		}
 		else
@@ -582,14 +588,18 @@ public:
 			if(!m || !m->msg)
 				break;
 
+			const char *str = msgToString(m->msg);
+			if(str)
+				log_debug("message: %s", str);
+			else
+				log_debug("unknown message: %d", m->msg);
+
 			if(m->msg == CURLMSG_DONE)
 			{
 				CurlConnection *conn;
 				curl_easy_getinfo(m->easy_handle, CURLINFO_PRIVATE, &conn);
 				conn->done(m->data.result);
 			}
-			else
-				log_debug("unknown message: %d\n", m->msg);
 		}
 	}
 
@@ -637,7 +647,7 @@ class HttpRequest::Private : public QObject
 
 public:
 	HttpRequest *q;
-	JDnsShared *dns;
+	QJDnsShared *dns;
 	QString connectHost;
 	bool ignoreTlsErrors;
 	HttpRequest::ErrorCondition errorCondition;
@@ -651,7 +661,7 @@ public:
 	CurlConnection *conn;
 	bool handleAdded;
 
-	Private(HttpRequest *_q, JDnsShared *_dns) :
+	Private(HttpRequest *_q, QJDnsShared *_dns) :
 		QObject(_q),
 		q(_q),
 		dns(_dns),
@@ -825,7 +835,7 @@ public:
 		}
 		else
 		{
-			JDnsSharedRequest *dreq = new JDnsSharedRequest(dns);
+			QJDnsSharedRequest *dreq = new QJDnsSharedRequest(dns);
 			connect(dreq, SIGNAL(resultsReady()), SLOT(dreq_resultsReady()));
 			dreq->query(QUrl::toAce(host), QJDns::A);
 		}
@@ -887,7 +897,7 @@ private slots:
 
 	void dreq_resultsReady()
 	{
-		JDnsSharedRequest *dreq = (JDnsSharedRequest *)sender();
+		QJDnsSharedRequest *dreq = (QJDnsSharedRequest *)sender();
 
 		if(dreq->success())
 		{
@@ -977,7 +987,7 @@ private slots:
 	}
 };
 
-HttpRequest::HttpRequest(JDnsShared *dns, QObject *parent) :
+HttpRequest::HttpRequest(QJDnsShared *dns, QObject *parent) :
 	QObject(parent)
 {
 	d = new Private(this, dns);

@@ -21,7 +21,7 @@
 #include <QVariant>
 #include <QTimer>
 #include <QPointer>
-#include "jdnsshared.h"
+#include "qjdnsshared.h"
 #include "httprequest.h"
 #include "websocket.h"
 #include "zhttprequestpacket.h"
@@ -44,7 +44,7 @@ public:
 	};
 
 	Worker *q;
-	JDnsShared *dns;
+	QJDnsShared *dns;
 	AppConfig *config;
 	Transport transport;
 	Worker::Format format;
@@ -74,7 +74,7 @@ public:
 	bool wsPeerClosing;
 	bool wsPendingPeerClose;
 
-	Private(JDnsShared *_dns, AppConfig *_config, Worker::Format _format, Worker *_q) :
+	Private(QJDnsShared *_dns, AppConfig *_config, Worker::Format _format, Worker *_q) :
 		QObject(_q),
 		q(_q),
 		dns(_dns),
@@ -739,10 +739,10 @@ private slots:
 
 	void respondError(const QByteArray &condition)
 	{
-		respondError(condition, -1, QByteArray(), HttpHeaders());
+		respondError(condition, -1, QByteArray(), HttpHeaders(), QByteArray());
 	}
 
-	void respondError(const QByteArray &condition, int code, const QByteArray &reason, const HttpHeaders &headers)
+	void respondError(const QByteArray &condition, int code, const QByteArray &reason, const HttpHeaders &headers, const QByteArray &body)
 	{
 		QPointer<QObject> self = this;
 
@@ -755,6 +755,7 @@ private slots:
 			resp.code = code;
 			resp.reason = reason;
 			resp.headers = headers;
+			resp.body = body;
 		}
 
 		writeResponse(resp);
@@ -942,7 +943,7 @@ private slots:
 		}
 
 		if(condition == "rejected")
-			respondError(condition, ws->responseCode(), ws->responseReason(), ws->responseHeaders());
+			respondError(condition, ws->responseCode(), ws->responseReason(), ws->responseHeaders(), ws->readResponseBody());
 		else
 			respondError(condition);
 	}
@@ -966,7 +967,7 @@ private slots:
 	}
 };
 
-Worker::Worker(JDnsShared *dns, AppConfig *config, Format format, QObject *parent) :
+Worker::Worker(QJDnsShared *dns, AppConfig *config, Format format, QObject *parent) :
 	QObject(parent)
 {
 	d = new Private(dns, config, format, this);
