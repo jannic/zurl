@@ -1,9 +1,9 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: zurl
-Source: http://packages.fanout.io/source/zurl-1.3.0.tar.bz2
+Source: http://packages.fanout.io/source/zurl-1.3.1.tar.bz2
 
 Files: *
-Copyright: 2012-2013 Fanout, Inc.
+Copyright: 2012-2014 Fanout, Inc.
 License: GPL-3+ with OpenSSL exception
 
 Files: src/common/processquit.* src/jdnsshared/jdnsshared.*
@@ -51,7 +51,7 @@ License: Expat
  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Files: debian/*
-Copyright: 2013 Jan Niehusmann <jan@debian.org>
+Copyright: 2013-2014 Jan Niehusmann <jan@debian.org>
 License: GPL-3+ with OpenSSL exception
 
 License: GPL-3+ with OpenSSL exception
