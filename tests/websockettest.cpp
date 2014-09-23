@@ -178,7 +178,7 @@ private slots:
 	{
 		WebSocket sock(dns);
 		QSignalSpy spy(&sock, SIGNAL(error()));
-		sock.start(QString("http://localhost:1/"));
+		sock.start(QString("http://localhost:2/"));
 		waitForSignal(&spy);
 
 		QVERIFY(sock.errorCondition() == WebSocket::ErrorConnect);
