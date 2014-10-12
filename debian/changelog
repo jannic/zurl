@@ -1,3 +1,12 @@
+zurl (1.3.1-4) unstable; urgency=low
+
+  * Disable failing test on kFreeBSD.
+    The attempt to fix this in 1.3.1-3 failed. But as I can't reproduce
+    the issue on the porter machines, I guess it's just an artifact
+    of the network being unavailable on the buildds.
+
+ -- Jan Niehusmann <jan@debian.org>  Sun, 12 Oct 2014 15:07:58 +0200
+
 zurl (1.3.1-3) unstable; urgency=low
 
   * Set standards-version to 3.9.6 (no changes)
