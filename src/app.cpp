@@ -41,7 +41,7 @@
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.3.1"
+#define VERSION "1.4.2"
 
 static void cleanStringList(QStringList *in)
 {
@@ -86,12 +86,12 @@ static bool convertToJsonStyleInPlace(QVariant *in)
 		for(int n = 0; n < vlist.count(); ++n)
 		{
 			QVariant i = vlist.at(n);
-			if(convertToJsonStyleInPlace(&i))
-			{
-				vlist[n] = i;
-				changed = true;
-			}
+			convertToJsonStyleInPlace(&i);
+			vlist[n] = i;
 		}
+
+		*in = vlist;
+		changed = true;
 	}
 	else if(type == QVariant::ByteArray)
 	{
@@ -133,16 +133,21 @@ static bool convertFromJsonStyleInPlace(QVariant *in)
 		for(int n = 0; n < vlist.count(); ++n)
 		{
 			QVariant i = vlist.at(n);
-			if(convertFromJsonStyleInPlace(&i))
-			{
-				vlist[n] = i;
-				changed = true;
-			}
+			convertFromJsonStyleInPlace(&i);
+			vlist[n] = i;
 		}
+
+		*in = vlist;
+		changed = true;
 	}
 	else if(type == QVariant::String)
 	{
 		*in = QVariant(in->toString().toUtf8());
+		changed = true;
+	}
+	else if(type != QVariant::Bool && type != QVariant::Double && in->canConvert(QVariant::Int))
+	{
+		*in = in->toInt();
 		changed = true;
 	}
 
@@ -314,7 +319,7 @@ public:
 		QString ipcFileModeStr = settings.value("ipc_file_mode").toString();
 		config.maxWorkers = settings.value("max_open_requests", -1).toInt();
 		config.sessionBufferSize = settings.value("buffer_size", 200000).toInt();
-		config.sessionTimeout = settings.value("timeout", 600).toInt();
+		config.activityTimeout = settings.value("timeout", 600).toInt();
 		int inHwm = settings.value("in_hwm", 1000).toInt();
 		int outHwm = settings.value("out_hwm", 1000).toInt();
 
@@ -396,6 +401,7 @@ public:
 
 			out_sock->setWriteQueueEnabled(false);
 			out_sock->setHwm(outHwm);
+			out_sock->setShutdownWaitTime(0);
 
 			if(!bindSpec(out_sock, "out_spec", out_spec, ipcFileMode))
 				return;
@@ -517,17 +523,19 @@ public:
 
 		if(type == InInit || type == InStream)
 		{
-			// the in/instream interface requires ids on packets
+			// try to get the id
 			QVariantHash vhash = data.toHash();
 			rid = vhash.value("id").toByteArray();
-			if(rid.isEmpty())
-			{
-				log_warning("received stream message without request id, skipping");
-				return;
-			}
 
 			if(type == InStream)
 			{
+				// instream interface requires ids on packets
+				if(rid.isEmpty())
+				{
+					log_warning("received stream message without request id, skipping");
+					return;
+				}
+
 				Worker *w = streamWorkersByRid.value(rid);
 				if(!w)
 				{
@@ -543,7 +551,7 @@ public:
 				return;
 			}
 
-			if(streamWorkersByRid.contains(rid))
+			if(!rid.isEmpty() && streamWorkersByRid.contains(rid))
 			{
 				log_warning("received request for id already in use, skipping");
 				return;
@@ -556,9 +564,9 @@ public:
 
 		workers += w;
 
-		if(type == InInit)
+		if(type == InInit && !rid.isEmpty())
 			streamWorkersByRid[rid] = w;
-		else // InReq
+		else if(type == InReq)
 			reqHeadersByWorker[w] = reqHeaders;
 
 		if(config.maxWorkers != -1 && workers.count() >= config.maxWorkers)
@@ -663,7 +671,8 @@ private slots:
 	{
 		Worker *w = (Worker *)sender();
 
-		streamWorkersByRid.remove(w->rid());
+		if(!w->rid().isEmpty())
+			streamWorkersByRid.remove(w->rid());
 		reqHeadersByWorker.remove(w);
 		workers.remove(w);
 

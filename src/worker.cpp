@@ -56,6 +56,7 @@ public:
 	QVariant userData;
 	int maxResponseSize;
 	bool ignorePolicies;
+	int sessionTimeout;
 	HttpRequest *hreq;
 	WebSocket *ws;
 	bool quiet;
@@ -66,7 +67,8 @@ public:
 	int bytesReceived;
 	bool pendingSend;
 	QTimer *expireTimer;
-	QTimer *httpExpireTimer;
+	QTimer *httpActivityTimer;
+	QTimer *httpSessionTimer;
 	QTimer *keepAliveTimer;
 	WebSocket::Frame::Type lastReceivedFrameType;
 	bool wsSendingMessage;
@@ -84,7 +86,8 @@ public:
 		ws(0),
 		pendingSend(false),
 		expireTimer(0),
-		httpExpireTimer(0),
+		httpActivityTimer(0),
+		httpSessionTimer(0),
 		keepAliveTimer(0),
 		lastReceivedFrameType(WebSocket::Frame::Text),
 		wsSendingMessage(false),
@@ -113,12 +116,20 @@ public:
 			expireTimer = 0;
 		}
 
-		if(httpExpireTimer)
+		if(httpActivityTimer)
 		{
-			httpExpireTimer->disconnect(this);
-			httpExpireTimer->setParent(0);
-			httpExpireTimer->deleteLater();
-			httpExpireTimer = 0;
+			httpActivityTimer->disconnect(this);
+			httpActivityTimer->setParent(0);
+			httpActivityTimer->deleteLater();
+			httpActivityTimer = 0;
+		}
+
+		if(httpSessionTimer)
+		{
+			httpSessionTimer->disconnect(this);
+			httpSessionTimer->setParent(0);
+			httpSessionTimer->deleteLater();
+			httpSessionTimer = 0;
 		}
 
 		if(keepAliveTimer)
@@ -143,7 +154,6 @@ public:
 
 			QVariantHash vhash = vrequest.toHash();
 			rid = vhash.value("id").toByteArray();
-			assert(!rid.isEmpty()); // app layer ensures this
 			toAddress = vhash.value("from").toByteArray();
 			QByteArray type = vhash.value("type").toByteArray();
 			if(!toAddress.isEmpty() && type != "error" && type != "cancel")
@@ -201,10 +211,20 @@ public:
 			return;
 		}
 
+		int defaultPort;
+		if(scheme == "https" || scheme == "wss")
+			defaultPort = 443;
+		else // http || wss
+			defaultPort = 80;
+
 		HttpHeaders headers = request.headers;
 
 		if(transport == HttpTransport)
 		{
+			// fire and forget
+			if(mode == Worker::Stream && (rid.isEmpty() || toAddress.isEmpty()))
+				quiet = true;
+
 			// streaming only allowed on streaming interface
 			if(mode == Worker::Stream)
 				outStream = request.stream;
@@ -230,10 +250,6 @@ public:
 				return;
 			}
 
-			// fire and forget
-			if(mode == Worker::Stream && toAddress.isEmpty())
-				quiet = true;
-
 			// can't use these two together
 			if(mode == Worker::Single && request.more)
 			{
@@ -253,18 +269,33 @@ public:
 				return;
 			}
 
+			QByteArray hostHeader = request.uri.host().toUtf8();
+
+			// only tack on the port if it isn't being overridden
+			int port = request.uri.port(defaultPort);
+			if(request.connectPort == -1 && port != defaultPort)
+				hostHeader += ":" + QByteArray::number(port);
+
+			headers.removeAll("Host");
+			headers += HttpHeader("Host", hostHeader);
+
 			hreq = new HttpRequest(dns, this);
 			connect(hreq, SIGNAL(nextAddress(const QHostAddress &)), SLOT(req_nextAddress(const QHostAddress &)));
 			connect(hreq, SIGNAL(readyRead()), SLOT(req_readyRead()));
 			connect(hreq, SIGNAL(bytesWritten(int)), SLOT(req_bytesWritten(int)));
 			connect(hreq, SIGNAL(error()), SLOT(req_error()));
+
 			maxResponseSize = request.maxSize;
+			sessionTimeout = request.timeout;
+
 			if(!request.connectHost.isEmpty())
 				hreq->setConnectHost(request.connectHost);
 			if(request.connectPort != -1)
 				request.uri.setPort(request.connectPort);
 
 			hreq->setIgnoreTlsErrors(request.ignoreTlsErrors);
+			if(request.followRedirects)
+				hreq->setFollowRedirects(8);
 
 			if(request.credits != -1)
 				outCredits += request.credits;
@@ -320,6 +351,16 @@ public:
 				return;
 			}
 
+			QByteArray hostHeader = request.uri.host().toUtf8();
+
+			// only tack on the port if it isn't being overridden
+			int port = request.uri.port(defaultPort);
+			if(request.connectPort == -1 && port != defaultPort)
+				hostHeader += ":" + QByteArray::number(port);
+
+			headers.removeAll("Host");
+			headers += HttpHeader("Host", hostHeader);
+
 			ws = new WebSocket(dns, this);
 			connect(ws, SIGNAL(nextAddress(const QHostAddress &)), SLOT(req_nextAddress(const QHostAddress &)));
 			connect(ws, SIGNAL(connected()), SLOT(ws_connected()));
@@ -341,10 +382,18 @@ public:
 				outCredits += request.credits;
 		}
 
-		httpExpireTimer = new QTimer(this);
-		connect(httpExpireTimer, SIGNAL(timeout()), SLOT(httpExpire_timeout()));
-		httpExpireTimer->setSingleShot(true);
-		httpExpireTimer->start(config->sessionTimeout * 1000);
+		httpActivityTimer = new QTimer(this);
+		connect(httpActivityTimer, SIGNAL(timeout()), SLOT(httpActivity_timeout()));
+		httpActivityTimer->setSingleShot(true);
+		httpActivityTimer->start(config->activityTimeout * 1000);
+
+		if(sessionTimeout != -1)
+		{
+			httpSessionTimer = new QTimer(this);
+			connect(httpSessionTimer, SIGNAL(timeout()), SLOT(httpSession_timeout()));
+			httpSessionTimer->setSingleShot(true);
+			httpSessionTimer->start(sessionTimeout);
+		}
 
 		if(transport == WebSocketTransport || (transport == HttpTransport && mode == Worker::Stream))
 		{
@@ -370,13 +419,24 @@ public:
 				bodySent = true;
 				hreq->endBody();
 			}
-			else
+
+			if(mode == Stream)
 			{
-				// send cts
-				ZhttpResponsePacket resp;
-				resp.type = ZhttpResponsePacket::Credit;
-				resp.credits = config->sessionBufferSize;
-				writeResponse(resp);
+				if(request.more)
+				{
+					// send cts
+					ZhttpResponsePacket resp;
+					resp.type = ZhttpResponsePacket::Credit;
+					resp.credits = config->sessionBufferSize;
+					writeResponse(resp);
+				}
+				else
+				{
+					// send ack
+					ZhttpResponsePacket resp;
+					resp.type = ZhttpResponsePacket::KeepAlive;
+					writeResponse(resp);
+				}
 			}
 		}
 		else // WebSocketTransport
@@ -446,7 +506,7 @@ public:
 					return;
 				}
 
-				refreshHttpTimeout();
+				refreshActivityTimeout();
 
 				if(!request.body.isEmpty())
 					hreq->writeBody(request.body);
@@ -463,7 +523,7 @@ public:
 		{
 			if(request.type == ZhttpRequestPacket::Data || request.type == ZhttpRequestPacket::Close || request.type == ZhttpRequestPacket::Ping || request.type == ZhttpRequestPacket::Pong)
 			{
-				refreshHttpTimeout();
+				refreshActivityTimeout();
 
 				if(request.type == ZhttpRequestPacket::Data)
 				{
@@ -550,8 +610,10 @@ public:
 	void writeResponse(const ZhttpResponsePacket &resp)
 	{
 		ZhttpResponsePacket out = resp;
-		out.from = config->clientId;
-		out.id = rid;
+		if(!toAddress.isEmpty())
+			out.from = config->clientId;
+		if(!rid.isEmpty())
+			out.id = rid;
 		out.seq = outSeq++;
 		out.userData = userData;
 
@@ -587,9 +649,9 @@ public:
 		expireTimer->start(SESSION_EXPIRE);
 	}
 
-	void refreshHttpTimeout()
+	void refreshActivityTimeout()
 	{
-		httpExpireTimer->start(config->sessionTimeout * 1000);
+		httpActivityTimer->start(config->activityTimeout * 1000);
 	}
 
 	void tryCleanup()
@@ -789,7 +851,7 @@ private slots:
 
 	void req_readyRead()
 	{
-		refreshHttpTimeout();
+		refreshActivityTimeout();
 
 		stuffToRead = true;
 
@@ -849,6 +911,8 @@ private slots:
 				condition = "connection-timeout"; break;
 			case HttpRequest::ErrorBodyNotAllowed:
 				condition = "content-not-allowed"; break;
+			case HttpRequest::ErrorTooManyRedirects:
+				condition = "too-many-redirects"; break;
 			case HttpRequest::ErrorGeneric:
 			default:
 				condition = "undefined-condition";
@@ -860,7 +924,7 @@ private slots:
 
 	void ws_connected()
 	{
-		refreshHttpTimeout();
+		refreshActivityTimeout();
 
 		ZhttpResponsePacket resp;
 		resp.type = ZhttpResponsePacket::Data;
@@ -873,7 +937,7 @@ private slots:
 
 	void ws_readyRead()
 	{
-		refreshHttpTimeout();
+		refreshActivityTimeout();
 
 		stuffToRead = true;
 
@@ -954,7 +1018,12 @@ private slots:
 		emit q->finished();
 	}
 
-	void httpExpire_timeout()
+	void httpActivity_timeout()
+	{
+		respondError("session-timeout");
+	}
+
+	void httpSession_timeout()
 	{
 		respondError("session-timeout");
 	}

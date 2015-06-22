@@ -27,6 +27,7 @@
 #include "log.h"
 
 #define BUFFER_SIZE 200000
+#define REQUEST_BODY_BUFFER_MAX 1000000
 
 // workaround for earlier curl versions
 #define UNPAUSE_WORKAROUND 1
@@ -61,6 +62,7 @@ public:
 	CURLSH *share;
 	CURL *easy;
 	QString method;
+	int maxRedirects;
 	bool expectBody;
 	bool bodyReadFrom;
 	struct curl_slist *dnsCache;
@@ -68,6 +70,7 @@ public:
 	int pauseBits;
 	BufferList in;
 	BufferList out;
+	int outPos;
 	bool inFinished;
 	bool outFinished;
 	bool haveStatusLine;
@@ -81,11 +84,13 @@ public:
 	CURLcode result;
 
 	CurlConnection() :
+		maxRedirects(-1),
 		expectBody(false),
 		bodyReadFrom(false),
 		dnsCache(NULL),
 		headersList(NULL),
 		pauseBits(0),
+		outPos(0),
 		inFinished(false),
 		outFinished(false),
 		haveStatusLine(false),
@@ -109,6 +114,8 @@ public:
 		curl_easy_setopt(easy, CURLOPT_WRITEDATA, this);
 		curl_easy_setopt(easy, CURLOPT_READFUNCTION, readFunction_cb);
 		curl_easy_setopt(easy, CURLOPT_READDATA, this);
+		curl_easy_setopt(easy, CURLOPT_SEEKFUNCTION, seekFunction_cb);
+		curl_easy_setopt(easy, CURLOPT_SEEKDATA, this);
 		curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, headerFunction_cb);
 		curl_easy_setopt(easy, CURLOPT_HEADERDATA, this);
 
@@ -118,6 +125,10 @@ public:
 
 		if(log_outputLevel() >= LOG_LEVEL_DEBUG)
 			curl_easy_setopt(easy, CURLOPT_VERBOSE, 1);
+
+#if LIBCURL_VERSION_NUM >= 0x072a00
+		curl_easy_setopt(easy, CURLOPT_PATH_AS_IS, 1);
+#endif
 	}
 
 	~CurlConnection()
@@ -175,7 +186,7 @@ public:
 		}
 	}
 
-	void setup(const QUrl &uri, const HttpHeaders &_headers, const QHostAddress &connectAddr = QHostAddress(), int connectPort = -1)
+	void setup(const QUrl &uri, const HttpHeaders &_headers, const QHostAddress &connectAddr = QHostAddress(), int connectPort = -1, int _maxRedirects = -1)
 	{
 		assert(!method.isEmpty());
 
@@ -228,6 +239,15 @@ public:
 		// disable expect usage as it appears to be buggy
 		curl_slist_append(headersList, "Expect:");
 		curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headersList);
+
+		maxRedirects = _maxRedirects;
+		if(maxRedirects >= 0)
+		{
+			curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 1);
+			curl_easy_setopt(easy, CURLOPT_MAXREDIRS, maxRedirects);
+		}
+
+		curl_easy_setopt(easy, CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
 	}
 
 	void update()
@@ -256,6 +276,12 @@ public:
 	{
 		CurlConnection *self = (CurlConnection *)userdata;
 		return self->readFunction((char *)ptr, size * nmemb);
+	}
+
+	static int seekFunction_cb(void *userdata, curl_off_t offset, int origin)
+	{
+		CurlConnection *self = (CurlConnection *)userdata;
+		return self->seekFunction(offset, origin);
 	}
 
 	static size_t headerFunction_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
@@ -304,7 +330,18 @@ public:
 
 	size_t readFunction(char *p, size_t size)
 	{
-		QByteArray buf = out.take(size);
+		QByteArray buf;
+		if(outPos >= 0 && out.size() <= REQUEST_BODY_BUFFER_MAX)
+		{
+			buf = out.mid(outPos, size);
+			outPos += buf.size();
+		}
+		else
+		{
+			outPos = -1; // no longer buffered
+			buf = out.take(size);
+		}
+
 		if(!buf.isEmpty())
 		{
 			bodyReadFrom = true;
@@ -330,6 +367,35 @@ public:
 		}
 	}
 
+	int seekFunction(curl_off_t offset, int origin)
+	{
+		if(outPos < 0)
+		{
+			log_debug("seekFunction: can't seek. input is unbuffered");
+			return 1;
+		}
+
+		if(origin == SEEK_SET)
+		{
+			if(offset <= out.size())
+			{
+				outPos = offset;
+				log_debug("seekFunction: seeking to position %ld", offset);
+				return 0;
+			}
+			else
+			{
+				log_debug("seekFunction: %ld out of range (range: 0-%d)", offset, out.size());
+				return 1;
+			}
+		}
+		else
+		{
+			log_debug("seekFunction: unknown origin value: %d", origin);
+			return 1;
+		}
+	}
+
 	size_t headerFunction(char *p, size_t size)
 	{
 		assert(p[size - 1] == '\n');
@@ -342,7 +408,48 @@ public:
 			len = size - 1;
 
 		QByteArray line(p, len);
-		if(line.isEmpty())
+		if(!line.isEmpty())
+		{
+			if(haveResponseHeaders)
+			{
+				// does it look like we're getting a status
+				//   line again? (happens when redirecting)
+				int at = line.indexOf(' ');
+				if(at != -1 && !line.mid(0, at).contains(':'))
+				{
+					haveStatusLine = false;
+					haveResponseHeaders = false;
+					responseHeaders.clear();
+				}
+			}
+
+			if(!haveResponseHeaders)
+			{
+				if(haveStatusLine)
+				{
+					int at = line.indexOf(": ");
+					if(at == -1)
+						return -1;
+
+					log_debug("response header: %s", line.data());
+					responseHeaders += HttpHeader(line.mid(0, at), line.mid(at + 2));
+				}
+				else
+				{
+					// status reason we have to parse ourselves
+					int at = line.indexOf(' ');
+					if(at == -1)
+						return -1;
+					at = line.indexOf(' ', at + 1);
+					if(at == -1)
+						return -1;
+					responseReason = line.mid(at + 1);
+
+					haveStatusLine = true;
+				}
+			}
+		}
+		else
 		{
 			haveResponseHeaders = true;
 
@@ -356,42 +463,27 @@ public:
 				log_debug("got code 100, ignoring this header block");
 				haveStatusLine = false;
 				haveResponseHeaders = false;
+				responseHeaders.clear();
+				return size;
 			}
-			else
-			{
-				// if a content-encoding was used, don't provide content-length
-				QByteArray contentEncoding = responseHeaders.get("Content-Encoding");
-				if(!contentEncoding.isEmpty() && contentEncoding != "identity")
-					responseHeaders.removeAll("Content-Length");
 
-				// tell the app we've got the header block
-				update();
-			}
-		}
-		else if(!haveResponseHeaders)
-		{
-			if(haveStatusLine)
+			if(maxRedirects >= 0 && responseCode >= 300 && responseCode < 400 && responseHeaders.contains("Location"))
 			{
-				int at = line.indexOf(": ");
-				if(at == -1)
-					return -1;
-
-				log_debug("response header: %s", line.data());
-				responseHeaders += HttpHeader(line.mid(0, at), line.mid(at + 2));
+				log_debug("got code 3xx and redirects enabled, ignoring this header block");
+				haveStatusLine = false;
+				haveResponseHeaders = false;
+				responseHeaders.clear();
+				return size;
 			}
-			else
-			{
-				// status reason we have to parse ourselves
-				int at = line.indexOf(' ');
-				if(at == -1)
-					return -1;
-				at = line.indexOf(' ', at + 1);
-				if(at == -1)
-					return -1;
-				responseReason = line.mid(at + 1);
 
-				haveStatusLine = true;
-			}
+			// if a content-encoding was used, don't provide content-length
+			QByteArray contentEncoding = responseHeaders.get("Content-Encoding");
+			if(!contentEncoding.isEmpty() && contentEncoding != "identity")
+				responseHeaders.removeAll("Content-Length");
+
+			// tell the app we've got the header block
+			newlyReadOrEof = true;
+			update();
 		}
 
 		return size;
@@ -650,6 +742,7 @@ public:
 	QJDnsShared *dns;
 	QString connectHost;
 	bool ignoreTlsErrors;
+	int maxRedirects;
 	HttpRequest::ErrorCondition errorCondition;
 	QString method;
 	QUrl uri;
@@ -666,6 +759,7 @@ public:
 		q(_q),
 		dns(_dns),
 		ignoreTlsErrors(false),
+		maxRedirects(-1),
 		errorCondition(HttpRequest::ErrorNone),
 		mostSignificantError(HttpRequest::ErrorGeneric),
 		ignoreBody(false),
@@ -880,7 +974,7 @@ private slots:
 		if(!self)
 			return;
 
-		conn->setup(uri, headers, addr);
+		conn->setup(uri, headers, addr, -1, maxRedirects);
 
 		if(ignoreTlsErrors)
 		{
@@ -940,6 +1034,9 @@ private slots:
 					// NOTE: if we get this then there may be a chance the request
 					//   was actually sent off
 					curError = HttpRequest::ErrorTimeout;
+					break;
+				case CURLE_TOO_MANY_REDIRECTS:
+					curError = HttpRequest::ErrorTooManyRedirects;
 					break;
 				default:
 					tryAgain = false;
@@ -1006,6 +1103,11 @@ void HttpRequest::setConnectHost(const QString &host)
 void HttpRequest::setIgnoreTlsErrors(bool on)
 {
 	d->ignoreTlsErrors = on;
+}
+
+void HttpRequest::setFollowRedirects(int maxRedirects)
+{
+	d->maxRedirects = maxRedirects;
 }
 
 void HttpRequest::start(const QString &method, const QUrl &uri, const HttpHeaders &headers)
