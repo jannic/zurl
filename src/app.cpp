@@ -41,7 +41,7 @@
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.4.2"
+#define VERSION "1.4.7"
 
 static void cleanStringList(QStringList *in)
 {
@@ -351,12 +351,21 @@ public:
 			}
 		}
 
-		config.defaultPolicy = settings.value("defpolicy").toString();
-		if(config.defaultPolicy != "allow" && config.defaultPolicy != "deny")
+		if(settings.contains("defpolicy"))
 		{
-			log_error("must set defpolicy to either \"allow\" or \"deny\"");
-			emit q->quit();
-			return;
+			QString defaultPolicy = settings.value("defpolicy").toString();
+			if(defaultPolicy != "allow" && defaultPolicy != "deny")
+			{
+				log_error("defpolicy must be set to \"allow\" or \"deny\"");
+				emit q->quit();
+				return;
+			}
+
+			config.defaultPolicy = defaultPolicy;
+		}
+		else
+		{
+			config.defaultPolicy = "allow";
 		}
 
 		config.allowExps = settings.value("allow").toStringList();

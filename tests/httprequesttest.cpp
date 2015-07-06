@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Fanout, Inc.
+ * Copyright (C) 2013-2015 Fanout, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <assert.h>
 #include <QTcpSocket>
 #include <QTcpServer>
 #include <QtTest/QtTest>
@@ -31,6 +32,10 @@ public:
 	QTcpServer *server;
 	QTcpSocket *sock;
 	bool requestParsed;
+	QList<QByteArray> headerLines;
+	QByteArray requestMethod;
+	QByteArray requestUri;
+	HttpHeaders requestHeaders;
 
 	HttpServer(QObject *parent = 0) :
 		QObject(parent),
@@ -57,65 +62,114 @@ public:
 		return server->serverPort();
 	}
 
+	void closeAllRequests()
+	{
+		if(sock)
+		{
+			sock->close();
+			sock = 0;
+		}
+	}
+
 	void handleRequest(const QByteArray &method, const QByteArray &uri)
 	{
-		Q_UNUSED(method);
+		if(method == "HEAD")
+		{
+			sock->write("HTTP/1.0 200 OK\r\nContent-Length: 12\r\n\r\n");
+			return;
+		}
 
-		if(uri == "/chunked")
+		if(uri == "/204")
+		{
+			sock->write("HTTP/1.0 204 No Content\r\nContent-Length: 12\r\n\r\n");
+		}
+		else if(uri == "/304")
+		{
+			sock->write("HTTP/1.0 304 Not Modified\r\nContent-Length: 12\r\n\r\n");
+		}
+		else if(uri == "/chunked")
 		{
 			QByteArray body = "hello world\n";
-			QByteArray buf = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+			QByteArray buf = "HTTP/1.1 200 OK\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n";
 			buf += QByteArray::number(body.size(), 16).toUpper() + "\r\n" + body + "\r\n";
 			buf += QByteArray::number(0, 16).toUpper() + "\r\n\r\n";
 			sock->write(buf);
-			sock->close();
 		}
 		else
 		{
 			sock->write("HTTP/1.0 200 OK\r\nContent-Length: 12\r\n\r\nhello world\n");
-			sock->close();
 		}
 	}
 
 private slots:
 	void server_newConnection()
 	{
+		requestParsed = false;
+		headerLines.clear();
+		requestMethod.clear();
+		requestUri.clear();
+		requestHeaders.clear();
+
 		sock = server->nextPendingConnection();
+		assert(sock);
 		connect(sock, SIGNAL(readyRead()), SLOT(sock_readyRead()));
 		connect(sock, SIGNAL(disconnected()), SLOT(sock_disconnected()));
 	}
 
 	void sock_readyRead()
 	{
-		if(!requestParsed)
+		QTcpSocket *s = (QTcpSocket *)sender();
+		if(s != sock)
+			return;
+
+		while(!requestParsed && sock->canReadLine())
 		{
-			if(sock->canReadLine())
+			QByteArray line = sock->readLine();
+			assert(line[line.length() - 2] == '\r');
+			assert(line[line.length() - 1] == '\n');
+			line.truncate(line.length() - 2);
+
+			if(!line.isEmpty())
 			{
-				QByteArray line = sock->readLine();
-				line.truncate(line.count() - 1);
-				int end = line.indexOf(' ');
-				QByteArray method = line.mid(0, end);
+				headerLines += line;
+			}
+			else
+			{
+				QByteArray statusLine = headerLines.first();
+				int end = statusLine.indexOf(' ');
+				QByteArray method = statusLine.mid(0, end);
 				int start = end + 1;
-				end = line.indexOf(' ', start);
-				QByteArray uri = line.mid(start, end - start);
+				end = statusLine.indexOf(' ', start);
+				QByteArray uri = statusLine.mid(start, end - start);
 				requestParsed = true;
+
+				for(int n = 1; n < headerLines.count(); ++n)
+				{
+					int at = headerLines[n].indexOf(": ");
+					assert(at != -1);
+					requestHeaders += HttpHeader(headerLines[n].mid(0, at), headerLines[n].mid(at + 2));
+				}
+
+				requestMethod = method;
+				requestUri = uri;
 
 				handleRequest(method, uri);
 			}
 		}
-		else
-		{
+
+		if(requestParsed)
 			sock->readAll();
-		}
 	}
 
 	void sock_disconnected()
 	{
-		sock->setParent(0);
-		sock->disconnect(this);
-		sock->deleteLater();
-		sock = 0;
-		requestParsed = false;
+		QTcpSocket *s = (QTcpSocket *)sender();
+
+		if(s == sock)
+			sock = 0;
+		s->setParent(0);
+		s->disconnect(this);
+		s->deleteLater();
 	}
 };
 
@@ -160,7 +214,8 @@ private slots:
 		req.endBody();
 		waitForSignal(&spy);
 
-		QVERIFY(req.errorCondition() == HttpRequest::ErrorConnect);
+		QCOMPARE(req.errorCondition(), HttpRequest::ErrorConnect);
+		server->closeAllRequests();
 	}
 
 	void requestConnectError()
@@ -171,7 +226,8 @@ private slots:
 		req.endBody();
 		waitForSignal(&spy);
 
-		QVERIFY(req.errorCondition() == HttpRequest::ErrorConnect);
+		QCOMPARE(req.errorCondition(), HttpRequest::ErrorConnect);
+		server->closeAllRequests();
 	}
 
 	void requestGet()
@@ -188,11 +244,13 @@ private slots:
 		respBody += req.readResponseBody();
 		HttpHeaders respHeaders = req.responseHeaders();
 
+		QCOMPARE(server->requestMethod, QByteArray("GET"));
 		QCOMPARE(req.responseCode(), 200);
 		QCOMPARE(req.responseReason(), QByteArray("OK"));
 		QVERIFY(respHeaders.contains("content-length"));
 		QCOMPARE(respHeaders.get("content-length").toInt(), 12);
 		QCOMPARE(respBody, QByteArray("hello world\n"));
+		server->closeAllRequests();
 	}
 
 	void requestGetChunked()
@@ -209,12 +267,202 @@ private slots:
 		respBody += req.readResponseBody();
 		HttpHeaders respHeaders = req.responseHeaders();
 
+		QCOMPARE(server->requestMethod, QByteArray("GET"));
 		QCOMPARE(req.responseCode(), 200);
 		QCOMPARE(req.responseReason(), QByteArray("OK"));
 		QVERIFY(!respHeaders.contains("content-length"));
 		QCOMPARE(respBody, QByteArray("hello world\n"));
+		server->closeAllRequests();
 	}
-};
+
+	void requestGetNoContent()
+	{
+		HttpRequest req(dns);
+		req.start("GET", QString("http://localhost:%1/204").arg(server->localPort()), HttpHeaders());
+		req.endBody();
+		QByteArray respBody;
+		while(!req.isFinished())
+		{
+			respBody += req.readResponseBody();
+			QTest::qWait(10);
+		}
+		respBody += req.readResponseBody();
+		HttpHeaders respHeaders = req.responseHeaders();
+
+		QCOMPARE(server->requestMethod, QByteArray("GET"));
+		QCOMPARE(req.responseCode(), 204);
+		QCOMPARE(req.responseReason(), QByteArray("No Content"));
+		QVERIFY(respHeaders.contains("content-length"));
+		QCOMPARE(respHeaders.get("content-length").toInt(), 12);
+		server->closeAllRequests();
+	}
+
+	void requestGetNotModified()
+	{
+		HttpRequest req(dns);
+		req.start("GET", QString("http://localhost:%1/304").arg(server->localPort()), HttpHeaders());
+		req.endBody();
+		QByteArray respBody;
+		while(!req.isFinished())
+		{
+			respBody += req.readResponseBody();
+			QTest::qWait(10);
+		}
+		respBody += req.readResponseBody();
+		HttpHeaders respHeaders = req.responseHeaders();
+
+		QCOMPARE(server->requestMethod, QByteArray("GET"));
+		QCOMPARE(req.responseCode(), 304);
+		QCOMPARE(req.responseReason(), QByteArray("Not Modified"));
+		QVERIFY(respHeaders.contains("content-length"));
+		QCOMPARE(respHeaders.get("content-length").toInt(), 12);
+		server->closeAllRequests();
+	}
+
+	void requestPostBody()
+	{
+		HttpRequest req(dns);
+		HttpHeaders headers;
+		headers += HttpHeader("Content-Length", "6");
+		req.start("POST", QString("http://localhost:%1/").arg(server->localPort()), headers);
+		req.writeBody("hello\n");
+		req.endBody();
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(server->requestMethod, QByteArray("POST"));
+		QCOMPARE(req.responseCode(), 200);
+		QCOMPARE(server->requestHeaders.get("Content-Length"), QByteArray("6"));
+		server->closeAllRequests();
+	}
+
+	void requestPostNoBody()
+	{
+		HttpRequest req(dns);
+		req.start("POST", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders(), false);
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(server->requestMethod, QByteArray("POST"));
+		QCOMPARE(req.responseCode(), 200);
+		QCOMPARE(server->requestHeaders.get("Content-Length"), QByteArray("0"));
+		server->closeAllRequests();
+	}
+
+	void requestHead()
+	{
+		HttpRequest req(dns);
+		req.start("HEAD", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders(), false);
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(req.responseCode(), 200);
+		QCOMPARE(server->requestMethod, QByteArray("HEAD"));
+		QVERIFY(!server->requestHeaders.contains("Content-Length"));
+		QVERIFY(!server->requestHeaders.contains("Transfer-Encoding"));
+		server->closeAllRequests();
+	}
+
+	void requestHeadMaybeBody()
+	{
+		HttpRequest req(dns);
+		req.start("HEAD", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders());
+		QTest::qWait(10);
+		req.endBody();
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(req.responseCode(), 200);
+		QCOMPARE(server->requestMethod, QByteArray("HEAD"));
+		QVERIFY(!server->requestHeaders.contains("Content-Length"));
+		QVERIFY(!server->requestHeaders.contains("Transfer-Encoding"));
+		server->closeAllRequests();
+	}
+
+	void requestHeadTryBody()
+	{
+		HttpRequest req(dns);
+		req.start("HEAD", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders());
+		req.writeBody("hello\n");
+		req.endBody();
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(req.errorCondition(), HttpRequest::ErrorBodyNotAllowed);
+		QCOMPARE(server->requestMethod, QByteArray("HEAD"));
+		QVERIFY(!server->requestHeaders.contains("Content-Length"));
+		QVERIFY(!server->requestHeaders.contains("Transfer-Encoding"));
+		server->closeAllRequests();
+	}
+
+	void requestDeleteNoBody()
+	{
+		HttpRequest req(dns);
+		req.start("DELETE", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders(), false);
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(server->requestMethod, QByteArray("DELETE"));
+		QCOMPARE(req.responseCode(), 200);
+		QVERIFY(!server->requestHeaders.contains("Content-Length"));
+		QVERIFY(!server->requestHeaders.contains("Transfer-Encoding"));
+		server->closeAllRequests();
+	}
+
+	void requestDeleteBody()
+	{
+		HttpRequest req(dns);
+		req.start("DELETE", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders());
+		req.writeBody("hello\n");
+		req.endBody();
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(server->requestMethod, QByteArray("DELETE"));
+		QCOMPARE(req.responseCode(), 200);
+		QVERIFY(!server->requestHeaders.contains("Content-Length"));
+		QCOMPARE(server->requestHeaders.get("Transfer-Encoding"), QByteArray("chunked"));
+		server->closeAllRequests();
+	}
+
+	void requestDeleteMaybeBody()
+	{
+		HttpRequest req(dns);
+		req.start("DELETE", QString("http://localhost:%1/").arg(server->localPort()), HttpHeaders());
+		req.endBody();
+		while(!req.isFinished())
+		{
+			req.readResponseBody();
+			QTest::qWait(10);
+		}
+
+		QCOMPARE(server->requestMethod, QByteArray("DELETE"));
+		QCOMPARE(req.responseCode(), 200);
+		QVERIFY(!server->requestHeaders.contains("Content-Length"));
+		QVERIFY(!server->requestHeaders.contains("Transfer-Encoding"));
+		server->closeAllRequests();
+	} };
 
 QTEST_MAIN(HttpRequestTest)
 #include "httprequesttest.moc"

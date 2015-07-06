@@ -1,6 +1,27 @@
 Zurl Changelog
 ==============
 
+v. 1.4.7 (2015-07-05)
+
+  * DNS: always do absolute query, even if not first
+
+v. 1.4.6 (2015-07-05)
+
+  * DNS queries now respect search domains in resolv.conf
+
+v. 1.4.5 (2015-06-26)
+
+  * Fix regression with GET requests.
+  * Ensure responses with no content (HEAD, 204, 304) are handled properly.
+
+v. 1.4.4 (2015-06-26)
+
+  * Fix HEAD requests.
+
+v. 1.4.3 (2015-06-25)
+
+  * Allow request body with GET and DELETE.
+
 v. 1.4.2 (2015-06-18)
 
   * Support redirects when there is a request body.
