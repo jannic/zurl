@@ -1,3 +1,10 @@
+zurl (1.5.0-1) UNRELEASED; urgency=medium
+
+  * New upstream version
+  * Update build dependencies
+
+ -- Jan Niehusmann <jan@debian.org>  Fri, 12 Feb 2016 23:54:28 +0100
+
 zurl (1.4.10-1) unstable; urgency=medium
 
   * New upstream version
