@@ -1,3 +1,9 @@
+zurl (1.5.1-1) UNRELEASED; urgency=medium
+
+  * Set Standards-Version to 3.9.7
+
+ -- Jan Niehusmann <jan@debian.org>  Thu, 03 Mar 2016 23:05:04 +0100
+
 zurl (1.5.0-1) unstable; urgency=medium
 
   * New upstream version
