@@ -42,7 +42,7 @@
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.5.0"
+#define VERSION "1.5.1"
 
 static void cleanStringList(QStringList *in)
 {
@@ -198,6 +198,8 @@ public:
 	Private(App *_q) :
 		QObject(_q),
 		q(_q),
+		dns(0),
+		dnsDebug(0),
 		in_sock(0),
 		in_stream_sock(0),
 		out_sock(0),
@@ -690,7 +692,7 @@ private slots:
 				doc = QJsonDocument(QJsonObject::fromVariantMap(data.toMap()));
 			else if(data.type() == QVariant::List)
 				doc = QJsonDocument(QJsonArray::fromVariantList(data.toList()));
-			part = QByteArray("J") + doc.toJson();
+			part = QByteArray("J") + doc.toJson(QJsonDocument::Compact);
 		}
 
 		if(!receiver.isEmpty())
