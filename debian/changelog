@@ -1,6 +1,7 @@
 zurl (1.5.1-1) UNRELEASED; urgency=medium
 
   * Set Standards-Version to 3.9.7
+  * Fix lintian warning "command-with-path-in-maintainer-script"
 
  -- Jan Niehusmann <jan@debian.org>  Thu, 03 Mar 2016 23:05:04 +0100
 
