@@ -1,3 +1,11 @@
+zurl (1.5.1-2) unstable; urgency=medium
+
+  * Don't access the network during build. This disables a test
+    for DNS error handling.
+    (Closes: Bug#830283)
+
+ -- Jan Niehusmann <jan@debian.org>  Thu, 07 Jul 2016 23:04:08 +0200
+
 zurl (1.5.1-1) unstable; urgency=medium
 
   * New upstream version

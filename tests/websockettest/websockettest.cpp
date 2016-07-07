@@ -169,6 +169,9 @@ private slots:
 		delete server;
 	}
 
+/* Testing for DNS error handling isn't possible without network access,
+   and network access isn't allowed during debian builds.
+
 	void handshakeDnsError()
 	{
 		WebSocket sock(dns);
@@ -178,6 +181,7 @@ private slots:
 
 		QVERIFY(sock.errorCondition() == WebSocket::ErrorConnect);
 	}
+*/
 
 	void handshakeConnectError()
 	{
