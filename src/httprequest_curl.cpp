@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <sys/select.h>
+#include <openssl/ssl.h>
 #include <QCoreApplication>
 #include <QSocketNotifier>
 #include <QTimer>
@@ -28,6 +29,7 @@
 #include "bufferlist.h"
 #include "log.h"
 #include "addressresolver.h"
+#include "verifyhost.h"
 
 #define BUFFER_SIZE 200000
 #define REQUEST_BODY_BUFFER_MAX 1000000
@@ -86,6 +88,7 @@ public:
 	int newlyWritten;
 	bool pendingUpdate;
 	CURLcode result;
+	QStringList checkHosts;
 
 	CurlConnection() :
 		maxRedirects(-1),
@@ -123,6 +126,10 @@ public:
 		curl_easy_setopt(easy, CURLOPT_SEEKDATA, this);
 		curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, headerFunction_cb);
 		curl_easy_setopt(easy, CURLOPT_HEADERDATA, this);
+
+		curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+		curl_easy_setopt(easy, CURLOPT_SSL_CTX_FUNCTION, &sslCtxFunction_cb);
+		curl_easy_setopt(easy, CURLOPT_SSL_CTX_DATA, this);
 
 		curl_easy_setopt(easy, CURLOPT_BUFFERSIZE, (long)BUFFER_SIZE);
 		curl_easy_setopt(easy, CURLOPT_ACCEPT_ENCODING, "");
@@ -201,32 +208,38 @@ public:
 			curl_easy_setopt(easy, CURLOPT_UPLOAD, 1L);
 	}
 
-	void setup(const QUrl &uri, const HttpHeaders &_headers, const QHostAddress &connectAddr = QHostAddress(), int connectPort = -1, int _maxRedirects = -1)
+	void setup(const QUrl &_uri, const HttpHeaders &_headers, const QHostAddress &connectAddr = QHostAddress(), int connectPort = -1, int _maxRedirects = -1, const QString &connectHostToTrust = QString())
 	{
 		assert(!method.isEmpty());
 
-		QUrl tmp = uri;
+		QUrl uri = _uri;
 		if(connectPort != -1)
-			tmp.setPort(connectPort);
-		else if(tmp.port() == -1)
+			uri.setPort(connectPort);
+		else if(uri.port() == -1)
 		{
 			if(uri.scheme() == "https")
-				tmp.setPort(443);
+				uri.setPort(443);
 			else
-				tmp.setPort(80);
+				uri.setPort(80);
 		}
 
-		curl_easy_setopt(easy, CURLOPT_URL, tmp.toEncoded().data());
+		HttpHeaders headers = _headers;
+
+		checkHosts += uri.host(QUrl::FullyEncoded);
 
 		if(!connectAddr.isNull())
 		{
 			curl_slist_free_all(dnsCache);
-			QByteArray cacheEntry = tmp.host(QUrl::FullyEncoded).toUtf8() + ':' + QByteArray::number(tmp.port()) + ':' + connectAddr.toString().toUtf8();
+
+			if(!connectHostToTrust.isEmpty())
+				checkHosts += connectHostToTrust;
+
+			QByteArray cacheEntry = uri.host(QUrl::FullyEncoded).toUtf8() + ':' + QByteArray::number(uri.port()) + ':' + connectAddr.toString().toUtf8();
 			dnsCache = curl_slist_append(dnsCache, cacheEntry.data());
 			curl_easy_setopt(easy, CURLOPT_RESOLVE, dnsCache);
 		}
 
-		HttpHeaders headers = _headers;
+		curl_easy_setopt(easy, CURLOPT_URL, uri.toEncoded().data());
 
 		bool chunked = false;
 		if(headers.contains("Content-Length"))
@@ -311,6 +324,18 @@ public:
 	{
 		CurlConnection *self = (CurlConnection *)userdata;
 		return self->headerFunction((char *)ptr, size * nmemb);
+	}
+
+	static CURLcode sslCtxFunction_cb(CURL *easy, SSL_CTX *context, void *userdata)
+	{
+		CurlConnection *self = (CurlConnection *)userdata;
+		return self->sslCtxFunction(easy, context);
+	}
+
+	static int sslVerifyCallback_cb(X509_STORE_CTX *x509StoreContext, void *data)
+	{
+		CurlConnection *self = (CurlConnection *)data;
+		return self->sslVerifyCallback(x509StoreContext);
 	}
 
 	size_t debugFunction(CURL *easy, curl_infotype type, char *ptr, size_t size)
@@ -521,6 +546,29 @@ public:
 		return size;
 	}
 
+	CURLcode sslCtxFunction(CURL *_easy, SSL_CTX *context)
+	{
+		Q_UNUSED(_easy);
+
+		SSL_CTX_set_cert_verify_callback(context, sslVerifyCallback_cb, this);
+		return CURLE_OK;
+	}
+
+	int sslVerifyCallback(X509_STORE_CTX *x509StoreContext)
+	{
+		X509 *peerCert = x509StoreContext->cert;
+
+		foreach(const QString &host, checkHosts)
+		{
+			if(verifyhost(host.toUtf8().data(), peerCert) == CURLE_OK)
+				return 1;
+		}
+
+		// TODO: later on, consider changing this to X509_V_ERR_HOSTNAME_MISMATCH
+		X509_STORE_CTX_set_error(x509StoreContext, X509_V_ERR_SUBJECT_ISSUER_MISMATCH);
+		return 0;
+	}
+
 	void done(CURLcode _result)
 	{
 		inFinished = true;
@@ -577,7 +625,7 @@ public:
 		pendingUpdate(false)
 	{
 		timer = new QTimer(this);
-		connect(timer, SIGNAL(timeout()), SLOT(timer_timeout()));
+		connect(timer, &QTimer::timeout, this, &CurlConnectionManager::timer_timeout);
 		timer->setSingleShot(true);
 
 		curl_global_init(CURL_GLOBAL_ALL);
@@ -644,12 +692,12 @@ public:
 
 			si->snRead = new QSocketNotifier(s, QSocketNotifier::Read, this);
 			si->snRead->setEnabled(false);
-			connect(si->snRead, SIGNAL(activated(int)), SLOT(snRead_activated(int)));
+			connect(si->snRead, &QSocketNotifier::activated, this, &CurlConnectionManager::snRead_activated);
 			snMap.insert(si->snRead, si);
 
 			si->snWrite = new QSocketNotifier(s, QSocketNotifier::Write, this);
 			si->snWrite->setEnabled(false);
-			connect(si->snWrite, SIGNAL(activated(int)), SLOT(snWrite_activated(int)));
+			connect(si->snWrite, &QSocketNotifier::activated, this, &CurlConnectionManager::snWrite_activated);
 			snMap.insert(si->snWrite, si);
 
 			curl_multi_assign(multi, s, si);
@@ -774,6 +822,7 @@ public:
 	QJDnsShared *dns;
 	AddressResolver *resolver;
 	QString connectHost;
+	bool trustConnectHost;
 	bool ignoreTlsErrors;
 	int maxRedirects;
 	HttpRequest::ErrorCondition errorCondition;
@@ -793,6 +842,7 @@ public:
 		QObject(_q),
 		q(_q),
 		dns(_dns),
+		trustConnectHost(false),
 		ignoreTlsErrors(false),
 		maxRedirects(-1),
 		errorCondition(HttpRequest::ErrorNone),
@@ -807,8 +857,8 @@ public:
 			g_man = new CurlConnectionManager(QCoreApplication::instance());
 
 		resolver = new AddressResolver(dns, this);
-		connect(resolver, SIGNAL(resultsReady(const QList<QHostAddress> &)), SLOT(resolver_resultsReady(const QList<QHostAddress> &)));
-		connect(resolver, SIGNAL(error()), SLOT(resolver_error()));
+		connect(resolver, &AddressResolver::resultsReady, this, &Private::resolver_resultsReady);
+		connect(resolver, &AddressResolver::error, this, &Private::resolver_error);
 	}
 
 	~Private()
@@ -841,7 +891,7 @@ public:
 			cleanup();
 
 			conn = new CurlConnection;
-			connect(conn, SIGNAL(updated()), SLOT(conn_updated()));
+			connect(conn, &CurlConnection::updated, this, &Private::conn_updated);
 
 			conn->setupMethod(method, willWriteBody);
 			conn->out = out;
@@ -969,7 +1019,7 @@ public:
 		assert(!conn);
 
 		conn = new CurlConnection;
-		connect(conn, SIGNAL(updated()), SLOT(conn_updated()));
+		connect(conn, &CurlConnection::updated, this, &Private::conn_updated);
 
 		// eat any transport headers as they'd likely break things
 		headers.removeAll("Connection");
@@ -1028,12 +1078,12 @@ private slots:
 		if(!self)
 			return;
 
-		conn->setup(uri, headers, addr, -1, maxRedirects);
+		conn->setup(uri, headers, addr, -1, maxRedirects, trustConnectHost ? connectHost : QString());
 
 		if(ignoreTlsErrors)
 		{
+			// this will verify the host as well through sslVerifyCallback
 			curl_easy_setopt(conn->easy, CURLOPT_SSL_VERIFYPEER, 0L);
-			curl_easy_setopt(conn->easy, CURLOPT_SSL_VERIFYHOST, 0L);
 		}
 
 		handleAdded = true;
@@ -1070,6 +1120,7 @@ private slots:
 					curError = HttpRequest::ErrorConnect;
 					break;
 				case CURLE_SSL_CACERT:
+				case CURLE_PEER_FAILED_VERIFICATION:
 					curError = HttpRequest::ErrorTls;
 					break;
 				case CURLE_OPERATION_TIMEDOUT:
@@ -1140,6 +1191,11 @@ HttpRequest::~HttpRequest()
 void HttpRequest::setConnectHost(const QString &host)
 {
 	d->connectHost = host;
+}
+
+void HttpRequest::setTrustConnectHost(bool on)
+{
+	d->trustConnectHost = on;
 }
 
 void HttpRequest::setIgnoreTlsErrors(bool on)

@@ -8,6 +8,12 @@
  <dep type='pkg' name='libcurl' pkgname='libcurl' version='>=7.20'>
   <required/>
  </dep>
+ <dep type='pkg' name='openssl libcrypto' pkgname='libcrypto' version='>=1.0'>
+  <required/>
+ </dep>
+ <dep type='pkg' name='openssl libssl' pkgname='libssl' version='>=1.0'>
+  <required/>
+ </dep>
  <dep type='pkg' name='libzmq' pkgname='libzmq' version='>=2.0'>
   <required/>
  </dep>

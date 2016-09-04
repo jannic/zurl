@@ -78,7 +78,9 @@ public:
 	~WebSocket();
 
 	void setConnectHost(const QString &host);
+	void setTrustConnectHost(bool on);
 	void setIgnoreTlsErrors(bool on);
+	void setFollowRedirects(int maxRedirects); // -1 to disable
 	void setMaxFrameSize(int size);
 
 	void start(const QUrl &uri, const HttpHeaders &headers = HttpHeaders());
