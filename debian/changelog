@@ -1,6 +1,7 @@
 zurl (1.6.0-1) UNRELEASED; urgency=medium
 
   * New upstream version
+  * Set Standards-Version to 3.9.8 (no changes)
 
  -- Jan Niehusmann <jan@debian.org>  Sun, 04 Sep 2016 21:21:03 +0200
 
