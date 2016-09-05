@@ -1,10 +1,10 @@
-zurl (1.6.0-1) UNRELEASED; urgency=medium
+zurl (1.6.0-1) unstable; urgency=medium
 
   * New upstream version
   * Set Standards-Version to 3.9.8 (no changes)
   * Build-Depend on libssl-dev
 
- -- Jan Niehusmann <jan@debian.org>  Sun, 04 Sep 2016 21:21:03 +0200
+ -- Jan Niehusmann <jan@debian.org>  Mon, 05 Sep 2016 19:35:28 +0200
 
 zurl (1.5.1-2) unstable; urgency=medium
 
