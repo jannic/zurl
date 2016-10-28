@@ -1,6 +1,7 @@
 zurl (1.7.0-1) UNRELEASED; urgency=medium
 
   * New upstream version
+  * Set INSTALL_ROOT when calling dh_auto_install
 
  -- Jan Niehusmann <jan@debian.org>  Fri, 28 Oct 2016 17:10:28 +0200
 

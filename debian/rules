@@ -25,3 +25,6 @@ export QT_SELECT=5
 
 override_dh_auto_configure:
 	./configure --prefix=/usr --verbose
+
+override_dh_auto_install:
+	dh_auto_install -- INSTALL_ROOT="$(CURDIR)/debian/zurl"
