@@ -1,3 +1,10 @@
+zurl (1.7.1-2) unstable; urgency=medium
+
+  * Fix build on GNU Hurd.
+    (GNU Hurd doesn't define PATH_MAX)
+
+ -- Jan Niehusmann <jan@debian.org>  Thu, 17 Nov 2016 17:32:09 +0100
+
 zurl (1.7.1-1) unstable; urgency=medium
 
   * New upstream version
