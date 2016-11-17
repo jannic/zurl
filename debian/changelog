@@ -1,11 +1,12 @@
-zurl (1.7.0-2) UNRELEASED; urgency=medium
+zurl (1.7.1-1) unstable; urgency=medium
 
+  * New upstream version
   * Depend on lsb-base (>= 3.0-6) to fix lintian warning
     "init.d-script-needs-depends-on-lsb-base"
   * Switch dependency on libssl-dev to libssl1.0-dev.
     Must use the same version of OpenSSL as qt5.
 
- -- Jan Niehusmann <jan@debian.org>  Thu, 17 Nov 2016 14:50:29 +0100
+ -- Jan Niehusmann <jan@debian.org>  Thu, 17 Nov 2016 14:53:20 +0100
 
 zurl (1.7.0-1) unstable; urgency=medium
 
