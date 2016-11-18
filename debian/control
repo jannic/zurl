@@ -6,7 +6,7 @@ Build-Depends: debhelper (>= 9.0.0), qtbase5-dev, qt5-qmake, qtchooser, libzmq3-
 Standards-Version: 3.9.8
 Homepage: https://github.com/fanout/zurl/
 Vcs-Git: git://anonscm.debian.org/users/jan/zurl.git
-Vcs-Browser: http://anonscm.debian.org/gitweb/?p=users/jan/zurl.git;a=summary
+Vcs-Browser: https://anonscm.debian.org/cgit/users/jan/zurl.git
 
 Package: zurl
 Architecture: any
