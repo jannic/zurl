@@ -1,8 +1,12 @@
 zurl (1.7.1-3) UNRELEASED; urgency=medium
 
-  * Depend on "libssl1.0-dev | libssl-dev (<< 1.1)" to make
-    backports easier.
   * Update Vcs-Browser URL
+  * Build-depend on libssl-dev (>= 1.1) and depend on libcurl3 (>= 7.51.0).
+    This fixes broken SSL support caused by an API incompatible change
+    without SONAME change in libcurl3. (See #844018).
+    Because curl 7.51.0-1 migrated to testing even though
+    there was a new RC bug stating that it breaks other packages, zurl
+    must be built with OpenSSL 1.1 as well.
 
  -- Jan Niehusmann <jan@debian.org>  Fri, 18 Nov 2016 00:16:54 +0100
 
