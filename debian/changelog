@@ -1,4 +1,4 @@
-zurl (1.7.1-3) UNRELEASED; urgency=medium
+zurl (1.7.1-3) UNRELEASED; urgency=critical
 
   * Update Vcs-Browser URL
   * Build-depend on libssl-dev (>= 1.1) and depend on libcurl3 (>= 7.51.0).
@@ -7,6 +7,7 @@ zurl (1.7.1-3) UNRELEASED; urgency=medium
     Because curl 7.51.0-1 migrated to testing even though
     there was a new RC bug stating that it breaks other packages, zurl
     must be built with OpenSSL 1.1 as well.
+  * Set urgency to critical because 1.7.1-2 gets broken by libcurl 7.51.0.
 
  -- Jan Niehusmann <jan@debian.org>  Fri, 18 Nov 2016 00:16:54 +0100
 
