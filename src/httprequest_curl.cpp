@@ -136,7 +136,7 @@ public:
 #endif
 
 		curl_easy_setopt(easy, CURLOPT_BUFFERSIZE, (long)BUFFER_SIZE);
-		curl_easy_setopt(easy, CURLOPT_ACCEPT_ENCODING, "");
+		curl_easy_setopt(easy, CURLOPT_ENCODING, "");
 		curl_easy_setopt(easy, CURLOPT_HTTP_CONTENT_DECODING, 1L);
 
 		if(log_outputLevel() >= LOG_LEVEL_DEBUG)
@@ -163,7 +163,6 @@ public:
 
 		if(method == "OPTIONS")
 		{
-			assert(!expectBody);
 			curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, "OPTIONS");
 		}
 		else if(method == "HEAD")
@@ -233,6 +232,7 @@ public:
 
 		if(!connectAddr.isNull())
 		{
+#if LIBCURL_VERSION_NUM >= 0x071400
 			curl_slist_free_all(dnsCache);
 
 			if(!connectHostToTrust.isEmpty())
@@ -241,6 +241,25 @@ public:
 			QByteArray cacheEntry = uri.host(QUrl::FullyEncoded).toUtf8() + ':' + QByteArray::number(uri.port()) + ':' + connectAddr.toString().toUtf8();
 			dnsCache = curl_slist_append(dnsCache, cacheEntry.data());
 			curl_easy_setopt(easy, CURLOPT_RESOLVE, dnsCache);
+#else
+			// for old versions of libcurl that don't support
+			//   hijacking DNS, we rewrite the URI to use the
+			//   resolved IP as the host, and override the Host
+			//   header with the host from the original URI. this
+			//   has two side-effects:
+			//
+			// 1. ssl cert verification won't work unless zurl is
+			//    compiled with openssl support.
+			// 2. if a custom Host header was provided, it will be
+			//    overwritten.
+
+			Q_UNUSED(connectHostToTrust);
+
+			headers.removeAll("Host");
+			headers += HttpHeader("Host", uri.host().toUtf8());
+
+			uri.setHost(connectAddr.toString());
+#endif
 		}
 
 		curl_easy_setopt(easy, CURLOPT_URL, uri.toEncoded().data());
@@ -630,6 +649,7 @@ public:
 	QHash<QSocketNotifier*, SocketInfo*> snMap;
 	QTimer *timer;
 	bool pendingUpdate;
+	QSet<CurlConnection*> connections;
 
 	CurlConnectionManager(QObject *parent = 0) :
 		QObject(parent),
@@ -640,7 +660,6 @@ public:
 		connect(timer, &QTimer::timeout, this, &CurlConnectionManager::timer_timeout);
 		timer->setSingleShot(true);
 
-		curl_global_init(CURL_GLOBAL_ALL);
 		multi = curl_multi_init();
 		curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, socketFunction_cb);
 		curl_multi_setopt(multi, CURLMOPT_SOCKETDATA, this);
@@ -650,8 +669,9 @@ public:
 
 	~CurlConnectionManager()
 	{
+		assert(connections.isEmpty());
+
 		curl_multi_cleanup(multi);
-		curl_global_cleanup();
 	}
 
 	void update()
@@ -823,7 +843,123 @@ public slots:
 	}
 };
 
-static CurlConnectionManager *g_man = 0;
+class CurlConnectionManagerManager : public QObject
+{
+	Q_OBJECT
+
+public:
+	class Item
+	{
+	public:
+		CurlConnectionManager *manager;
+		int refs;
+
+		Item() :
+			manager(0),
+			refs(0)
+		{
+		}
+
+		~Item()
+		{
+			delete manager;
+		}
+	};
+
+	Item *current;
+	QHash<CurlConnectionManager*, Item*> old;
+	QTimer *timer;
+	int persistentConnectionMaxTime;
+
+	CurlConnectionManagerManager(QObject *parent = 0) :
+		QObject(parent),
+		current(0),
+		persistentConnectionMaxTime(-1)
+	{
+		curl_global_init(CURL_GLOBAL_ALL);
+
+		timer = new QTimer(this);
+		connect(timer, &QTimer::timeout, this, &CurlConnectionManagerManager::rotate);
+		timer->setSingleShot(true);
+	}
+
+	// NOTE: not DOR-SS
+	~CurlConnectionManagerManager()
+	{
+		qDeleteAll(old);
+		delete current;
+
+		curl_global_cleanup();
+	}
+
+	CurlConnectionManager *retainCurrent()
+	{
+		if(!current)
+		{
+			current = new Item;
+			current->manager = new CurlConnectionManager(this);
+
+			if(persistentConnectionMaxTime > 0)
+				timer->start(persistentConnectionMaxTime * 1000);
+		}
+
+		++(current->refs);
+
+		return current->manager;
+	}
+
+	void release(CurlConnectionManager *manager)
+	{
+		if(current && manager == current->manager)
+		{
+			assert(current->refs > 0);
+			--(current->refs);
+		}
+		else
+		{
+			Item *i = old.value(manager);
+			assert(i);
+			assert(i->refs > 0);
+			--(i->refs);
+			if(i->refs == 0)
+			{
+				old.remove(manager);
+				delete i;
+				log_debug("removed connection manager (old=%d)", old.count());
+			}
+		}
+	}
+
+	void setPersistentConnectionMaxTime(int secs)
+	{
+		persistentConnectionMaxTime = secs;
+
+		if(persistentConnectionMaxTime > 0 && current)
+			timer->start(persistentConnectionMaxTime * 1000);
+	}
+
+private slots:
+	void rotate()
+	{
+		if(current->refs > 0)
+			old.insert(current->manager, current);
+		else
+			delete current;
+
+		current = 0;
+
+		log_debug("rotated connection managers (old=%d)", old.count());
+	}
+};
+
+static CurlConnectionManagerManager *_g_ccmm = 0;
+
+static CurlConnectionManagerManager *g_ccmm()
+{
+	if(!_g_ccmm)
+		_g_ccmm = new CurlConnectionManagerManager(QCoreApplication::instance());
+	return _g_ccmm;
+}
 
 class HttpRequest::Private : public QObject
 {
@@ -848,7 +984,7 @@ public:
 	HttpRequest::ErrorCondition mostSignificantError;
 	bool ignoreBody;
 	CurlConnection *conn;
-	bool handleAdded;
+	CurlConnectionManager *manager;
 
 	Private(HttpRequest *_q, QJDnsShared *_dns) :
 		QObject(_q),
@@ -863,11 +999,8 @@ public:
 		mostSignificantError(HttpRequest::ErrorGeneric),
 		ignoreBody(false),
 		conn(0),
-		handleAdded(false)
+		manager(0)
 	{
-		if(!g_man)
-			g_man = new CurlConnectionManager(QCoreApplication::instance());
-
 		resolver = new AddressResolver(dns, this);
 		connect(resolver, &AddressResolver::resultsReady, this, &Private::resolver_resultsReady);
 		connect(resolver, &AddressResolver::error, this, &Private::resolver_error);
@@ -882,12 +1015,16 @@ public:
 	{
 		if(conn)
 		{
-			if(handleAdded)
-				curl_multi_remove_handle(g_man->multi, conn->easy);
+			if(manager)
+			{
+				curl_multi_remove_handle(manager->multi, conn->easy);
+				manager->connections -= conn;
+				g_ccmm()->release(manager);
+				manager = 0;
+			}
 
 			delete conn;
 			conn = 0;
-			handleAdded = false;
 		}
 	}
 
@@ -929,13 +1066,13 @@ public:
 		// we'd prefer not to send chunked encoding header if we don't
 		//   have to for certain methods, so wait and see if the user
 		//   actually tries to send a body before we start the request
-		if(willWriteBody && (method == "GET" || method == "DELETE"))
+		if(willWriteBody && (method == "OPTIONS" || method == "GET" || method == "DELETE"))
 			return;
 
 		// if the user might provide a body but we don't expect one
 		//   for the method type, then we'll wait and see what is
 		//   provided before starting the request.
-		if(willWriteBody && (method == "OPTIONS" || method == "HEAD"))
+		if(willWriteBody && method == "HEAD")
 		{
 			bodyNotAllowed = true;
 			return;
@@ -971,7 +1108,7 @@ public:
 			log_debug("send unpausing");
 			conn->pauseBits &= ~CURLPAUSE_SEND;
 			curl_easy_pause(conn->easy, conn->pauseBits);
-			g_man->update();
+			manager->update();
 		}
 	}
 
@@ -1000,7 +1137,7 @@ public:
 			log_debug("send unpausing");
 			conn->pauseBits &= ~CURLPAUSE_SEND;
 			curl_easy_pause(conn->easy, conn->pauseBits);
-			g_man->update();
+			manager->update();
 		}
 	}
 
@@ -1017,7 +1154,7 @@ public:
 				log_debug("recv unpausing");
 				conn->pauseBits &= ~CURLPAUSE_RECV;
 				curl_easy_pause(conn->easy, conn->pauseBits);
-				g_man->update();
+				manager->update();
 			}
 
 			return out;
@@ -1102,11 +1239,12 @@ private slots:
 #endif
 		}
 
-		handleAdded = true;
-		curl_multi_add_handle(g_man->multi, conn->easy);
+		manager = g_ccmm()->retainCurrent();
+		manager->connections += conn;
+		curl_multi_add_handle(manager->multi, conn->easy);
 
 		// kick the engine
-		g_man->doSocketAction(false, CURL_SOCKET_TIMEOUT, 0);
+		manager->doSocketAction(false, CURL_SOCKET_TIMEOUT, 0);
 	}
 
 	void resolver_resultsReady(const QList<QHostAddress> &results)
@@ -1287,6 +1425,11 @@ HttpHeaders HttpRequest::responseHeaders() const
 QByteArray HttpRequest::readResponseBody(int size)
 {
 	return d->readResponseBody(size);
+}
+
+void HttpRequest::setPersistentConnectionMaxTime(int secs)
+{
+	g_ccmm()->setPersistentConnectionMaxTime(secs);
 }
 
 #include "httprequest_curl.moc"

@@ -38,11 +38,12 @@
 #include "processquit.h"
 #include "tnetstring.h"
 #include "zhttpresponsepacket.h"
+#include "httprequest.h"
 #include "appconfig.h"
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.7.1"
+#define VERSION "1.8.0"
 
 static void cleanStringList(QStringList *in)
 {
@@ -332,6 +333,7 @@ public:
 		config.maxWorkers = settings.value("max_open_requests", -1).toInt();
 		config.sessionBufferSize = settings.value("buffer_size", 200000).toInt();
 		config.activityTimeout = settings.value("timeout", 600).toInt();
+		config.persistentConnectionMaxTime = settings.value("connection_max_time", 60 * 60 * 2).toInt();
 		int inHwm = settings.value("in_hwm", 1000).toInt();
 		int outHwm = settings.value("out_hwm", 1000).toInt();
 
@@ -391,11 +393,13 @@ public:
 
 		dns = new QJDnsShared(QJDnsShared::UnicastInternet, this);
 
-		// uncomment this for packet level dns debugging
-		//dns->setDebug(dnsDebug, "U");
+		if(log_outputLevel() >= LOG_LEVEL_DEBUG)
+			dns->setDebug(dnsDebug, "U");
 
 		dns->addInterface(QHostAddress::Any);
 		dns->addInterface(QHostAddress::AnyIPv6);
+
+		HttpRequest::setPersistentConnectionMaxTime(config.persistentConnectionMaxTime);
 
 		if(!in_spec.isEmpty())
 		{
@@ -544,12 +548,15 @@ public:
 			data = convertFromJsonStyle(data);
 		}
 
-		if(type == InInit)
-			log_debug("recv-init: %s", qPrintable(TnetString::variantToString(data, -1)));
-		else if(type == InStream)
-			log_debug("recv-stream: %s", qPrintable(TnetString::variantToString(data, -1)));
-		else // InReq
-			log_debug("recv-req: %s", qPrintable(TnetString::variantToString(data, -1)));
+		if(log_outputLevel() >= LOG_LEVEL_DEBUG)
+		{
+			if(type == InInit)
+				log_debug("recv-init: %s", qPrintable(TnetString::variantToString(data, -1)));
+			else if(type == InStream)
+				log_debug("recv-stream: %s", qPrintable(TnetString::variantToString(data, -1)));
+			else // InReq
+				log_debug("recv-req: %s", qPrintable(TnetString::variantToString(data, -1)));
+		}
 
 		QByteArray rid;
 
@@ -697,13 +704,15 @@ private slots:
 
 		if(!receiver.isEmpty())
 		{
-			log_debug("send: %s", qPrintable(TnetString::variantToString(response, -1)));
+			if(log_outputLevel() >= LOG_LEVEL_DEBUG)
+				log_debug("send: %s", qPrintable(TnetString::variantToString(response, -1)));
 
 			out_sock->write(QList<QByteArray>() << (receiver + ' ' + part));
 		}
 		else
 		{
-			log_debug("send-req: %s", qPrintable(TnetString::variantToString(response, -1)));
+			if(log_outputLevel() >= LOG_LEVEL_DEBUG)
+				log_debug("send-req: %s", qPrintable(TnetString::variantToString(response, -1)));
 
 			assert(reqHeadersByWorker.contains(w));
 			QList<QByteArray> reqHeaders = reqHeadersByWorker.value(w);
