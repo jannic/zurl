@@ -1,3 +1,9 @@
+zurl (1.8.0-1) unstable; urgency=medium
+
+  * New upstream version
+
+ -- Jan Niehusmann <jan@debian.org>  Mon, 26 Jun 2017 13:44:07 +0200
+
 zurl (1.7.1-4) unstable; urgency=medium
 
   * Build-depend on libssl1.0-dev | libssl-dev (<< 1.1) and
