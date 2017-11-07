@@ -179,7 +179,7 @@ private slots:
 		sock.start(QString("http://nosuchhost:%1/").arg(server->localPort()));
 		waitForSignal(&spy);
 
-		QVERIFY(sock.errorCondition() == WebSocket::ErrorConnect);
+		QCOMPARE(sock.errorCondition(), WebSocket::ErrorConnect);
 	}
 */
 
@@ -197,7 +197,7 @@ private slots:
 // caused by the BSD kernel itself, but by the buildd configuration: After all, the
 // buildds don't guarantee any network access.
 #if !defined(__FreeBSD__) && !defined(__FreeBSD_kernel__)
-		QVERIFY(sock.errorCondition() == WebSocket::ErrorConnect);
+		QCOMPARE(sock.errorCondition(), WebSocket::ErrorConnect);
 #endif
 	}
 
