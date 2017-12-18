@@ -1,3 +1,11 @@
+zurl (1.9.1-1) unstable; urgency=medium
+
+  * New upstream version 1.9.1
+  * Set standards-version to 4.1.2
+  * Set priority to optional
+
+ -- Jan Niehusmann <jan@debian.org>  Mon, 18 Dec 2017 22:19:46 +0100
+
 zurl (1.9.0-1) unstable; urgency=medium
 
   * New upstream version
