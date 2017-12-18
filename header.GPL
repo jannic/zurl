@@ -1,9 +1,3 @@
-/*
- * Copyright (C) 2012-2013 Fanout, Inc.
- *
- * This file is part of Zurl.
- *
- * $FANOUT_BEGIN_LICENSE:GPL$
  *
  * Zurl is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
@@ -23,57 +17,3 @@
  * contained in a written agreement between you and Fanout. For further
  * information use the contact form at <https://fanout.io/enterprise/>.
  *
- * $FANOUT_END_LICENSE$
- */
-
-#include <QCoreApplication>
-#include <QTimer>
-
-#ifdef USE_CURL
-#include <curl/curl.h>
-#endif
-
-#ifdef USE_QNAM
-#include <QtCrypto>
-#endif
-
-#include "app.h"
-
-class AppMain : public QObject
-{
-	Q_OBJECT
-
-public:
-	App *app;
-
-public slots:
-	void start()
-	{
-		app = new App(this);
-		connect(app, &App::quit, this, &AppMain::app_quit);
-		app->start();
-	}
-
-	void app_quit()
-	{
-		delete app;
-		emit quit();
-	}
-
-signals:
-	void quit();
-};
-
-int main(int argc, char **argv)
-{
-#ifdef USE_QNAM
-	QCA::Initializer qcaInit;
-#endif
-	QCoreApplication qapp(argc, argv);
-	AppMain appMain;
-	QObject::connect(&appMain, &AppMain::quit, &qapp, &QCoreApplication::quit);
-	QTimer::singleShot(0, &appMain, SLOT(start()));
-	return qapp.exec();
-}
-
-#include "main.moc"
