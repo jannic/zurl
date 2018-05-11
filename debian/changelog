@@ -1,6 +1,7 @@
 zurl (1.9.1-3) UNRELEASED; urgency=medium
 
   * Point Vcs-* to salsa repository
+  * Set standards-version to 4.1.4
 
  -- Jan Niehusmann <jan@debian.org>  Fri, 11 May 2018 23:57:34 +0200
 
