@@ -1,3 +1,9 @@
+zurl (1.9.1-5) UNRELEASED; urgency=medium
+
+  * Fix build with libcurl >= 7.62 (Closes: Bug#913379)
+
+ -- Jan Niehusmann <jan@debian.org>  Sat, 10 Nov 2018 16:43:27 +0100
+
 zurl (1.9.1-4) unstable; urgency=medium
 
   * Build-Depend on libcurl4-openssl-dev (>= 7.60.0-2), which is built
