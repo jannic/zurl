@@ -1,8 +1,8 @@
-zurl (1.9.1-5) UNRELEASED; urgency=medium
+zurl (1.9.1-5) unstable; urgency=medium
 
   * Fix build with libcurl >= 7.62 (Closes: Bug#913379)
 
- -- Jan Niehusmann <jan@debian.org>  Sat, 10 Nov 2018 16:43:27 +0100
+ -- Jan Niehusmann <jan@debian.org>  Sat, 10 Nov 2018 16:45:16 +0100
 
 zurl (1.9.1-4) unstable; urgency=medium
 
