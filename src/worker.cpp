@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Fanout, Inc.
+ * Copyright (C) 2012-2018 Fanout, Inc.
  * 
  * This file is part of Zurl.
  *
@@ -312,7 +312,7 @@ public:
 				headers += HttpHeader("Host", hostHeader);
 			}
 
-			hreq = new HttpRequest(dns, this);
+			hreq = new HttpRequest(this);
 			connect(hreq, &HttpRequest::nextAddress, this, &Private::req_nextAddress);
 			connect(hreq, &HttpRequest::readyRead, this, &Private::req_readyRead);
 			connect(hreq, &HttpRequest::bytesWritten, this, &Private::req_bytesWritten);
@@ -321,10 +321,10 @@ public:
 			maxResponseSize = request.maxSize;
 			sessionTimeout = request.timeout;
 
+			hreq->setAllowIPv6(config->allowIPv6);
+
 			if(!request.connectHost.isEmpty())
-				hreq->setConnectHost(request.connectHost);
-			if(request.connectPort != -1)
-				uri.setPort(request.connectPort);
+				hreq->setConnectHostPort(request.connectHost, request.connectPort);
 
 			hreq->setTrustConnectHost(request.trustConnectHost);
 			hreq->setIgnoreTlsErrors(request.ignoreTlsErrors);
@@ -376,7 +376,7 @@ public:
 			}
 
 			ws = new WebSocket(dns, this);
-			connect(ws, &WebSocket::nextAddress, this, &Private::req_nextAddress);
+			connect(ws, &WebSocket::nextAddress, this, &Private::ws_nextAddress);
 			connect(ws, &WebSocket::connected, this, &Private::ws_connected);
 			connect(ws, &WebSocket::readyRead, this, &Private::ws_readyRead);
 			connect(ws, &WebSocket::framesWritten, this, &Private::ws_framesWritten);
@@ -570,7 +570,7 @@ public:
 				}
 				else if(request.type == ZhttpRequestPacket::Close)
 				{
-					ws->close(request.code);
+					ws->close(request.code, QString::fromUtf8(request.body));
 
 					wsClosed = true;
 
@@ -589,6 +589,21 @@ public:
 
 	static bool matchExp(const QString &exp, const QString &s)
 	{
+		QHostAddress addr(s);
+
+		if(!addr.isNull())
+		{
+			int at = exp.indexOf('/');
+			if(at != -1)
+			{
+				QPair<QHostAddress, int> sn = QHostAddress::parseSubnet(exp);
+				if(!sn.first.isNull())
+				{
+					return addr.isInSubnet(sn.first, sn.second);
+				}
+			}
+		}
+
 		int at = exp.indexOf('*');
 		if(at != -1)
 		{
@@ -596,8 +611,8 @@ public:
 			QString end = exp.mid(at + 1);
 			return (s.startsWith(start, Qt::CaseInsensitive) && s.endsWith(end, Qt::CaseInsensitive));
 		}
-		else
-			return s.compare(exp, Qt::CaseInsensitive);
+
+		return (s.compare(exp, Qt::CaseInsensitive) == 0);
 	}
 
 	bool checkAllow(const QString &in) const
@@ -849,7 +864,7 @@ private slots:
 		}
 		else // WebSocketTransport
 		{
-			if(state == Started || state || Closing || state == PeerClosing)
+			if(state == Started || state == Closing || state == PeerClosing)
 			{
 				if(stuffToRead)
 				{
@@ -908,6 +923,7 @@ private slots:
 					ZhttpResponsePacket resp;
 					resp.type = ZhttpResponsePacket::Close;
 					resp.code = ws->peerCloseCode();
+					resp.body = ws->peerCloseReason().toUtf8();
 					writeResponse(resp);
 					if(!self)
 						return;
@@ -941,7 +957,7 @@ private slots:
 	void req_nextAddress(const QHostAddress &addr)
 	{
 		if(!isAllowed(addr.toString()))
-			respondError("policy-violation");
+			hreq->blockAddress();
 	}
 
 	void req_readyRead()
@@ -1015,6 +1031,12 @@ private slots:
 		}
 
 		respondError(condition);
+	}
+
+	void ws_nextAddress(const QHostAddress &addr)
+	{
+		if(!isAllowed(addr.toString()))
+			respondError("policy-violation");
 	}
 
 	void ws_connected()

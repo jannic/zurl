@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2013 Fanout, Inc.
+ * Copyright (C) 2012-2018 Fanout, Inc.
  *
  * This file is part of Zurl.
  *
@@ -34,7 +34,6 @@
 
 class QHostAddress;
 class QUrl;
-class QJDnsShared;
 
 class HttpRequest : public QObject
 {
@@ -53,13 +52,14 @@ public:
 		ErrorTooManyRedirects
 	};
 
-	HttpRequest(QJDnsShared *dns, QObject *parent = 0);
+	HttpRequest(QObject *parent = 0);
 	~HttpRequest();
 
-	void setConnectHost(const QString &host);
+	void setConnectHostPort(const QString &host, int port);
 	void setTrustConnectHost(bool on);
 	void setIgnoreTlsErrors(bool on);
 	void setFollowRedirects(int maxRedirects); // -1 to disable
+	void setAllowIPv6(bool on);
 
 	void start(const QString &method, const QUrl &uri, const HttpHeaders &headers = HttpHeaders(), bool willWriteBody = true);
 
@@ -78,10 +78,15 @@ public:
 
 	QByteArray readResponseBody(int size = -1); // takes from the buffer
 
+	// call in response to nextAddress() signal
+	void blockAddress();
+
 	static void setPersistentConnectionMaxTime(int secs);
 
 signals:
+	// NOTE: not DOR-SS
 	void nextAddress(const QHostAddress &addr);
+
 	void readyRead();
 	void bytesWritten(int count);
 	void error();

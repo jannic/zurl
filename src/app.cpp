@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Fanout, Inc.
+ * Copyright (C) 2012-2018 Fanout, Inc.
  *
  * This file is part of Zurl.
  *
@@ -38,10 +38,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 
-#ifdef USE_QNAM
-#include <QtCrypto>
-#endif
-
 #include "qjdnsshared.h"
 #include "qzmqsocket.h"
 #include "qzmqreqmessage.h"
@@ -55,7 +51,7 @@
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.9.1"
+#define VERSION "1.10.0"
 
 static void cleanStringList(QStringList *in)
 {
@@ -238,15 +234,6 @@ public:
 
 	void start()
 	{
-#ifdef USE_QNAM
-		if(!QCA::isSupported("cert"))
-		{
-			log_error("missing qca \"cert\" feature. install qca-ossl");
-			emit q->quit();
-			return;
-		}
-#endif
-
 		qsrand(time(NULL));
 
 		QStringList args = QCoreApplication::instance()->arguments();
@@ -342,6 +329,7 @@ public:
 		QString out_spec = settings.value("out_spec").toString();
 		QString in_req_spec = settings.value("in_req_spec").toString();
 		QString ipcFileModeStr = settings.value("ipc_file_mode").toString();
+		config.allowIPv6 = settings.value("allow_ipv6", false).toBool();
 		config.maxWorkers = settings.value("max_open_requests", -1).toInt();
 		config.sessionBufferSize = settings.value("buffer_size", 200000).toInt();
 		config.activityTimeout = settings.value("timeout", 600).toInt();
