@@ -1,3 +1,9 @@
+zurl (1.10.0-1) UNRELEASED; urgency=medium
+
+  * New upstream version 1.10.0
+
+ -- Jan Niehusmann <jan@debian.org>  Wed, 19 Dec 2018 21:31:07 +0100
+
 zurl (1.9.1-5) unstable; urgency=medium
 
   * Fix build with libcurl >= 7.62 (Closes: Bug#913379)
