@@ -1,3 +1,9 @@
+zurl (1.10.1-1) unstable; urgency=medium
+
+  * New upstream version 1.10.1
+
+ -- Jan Niehusmann <jan@debian.org>  Sat, 30 Mar 2019 21:18:40 +0100
+
 zurl (1.10.0-1) unstable; urgency=medium
 
   * New upstream version 1.10.0
