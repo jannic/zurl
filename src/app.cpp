@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Fanout, Inc.
+ * Copyright (C) 2012-2019 Fanout, Inc.
  *
  * This file is part of Zurl.
  *
@@ -51,7 +51,7 @@
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.10.1"
+#define VERSION "1.11.0"
 
 static void cleanStringList(QStringList *in)
 {
@@ -275,10 +275,24 @@ public:
 			return;
 		}
 
+		int logLevel = LOG_LEVEL_INFO;
+		QString logLevelString = options.value("loglevel");
+		if(!logLevelString.isEmpty())
+		{
+			bool ok;
+			logLevel = logLevelString.toInt(&ok);
+			if(!ok || logLevel < LOG_LEVEL_ERROR)
+			{
+				log_error("parameter to --loglevel invalid: %s", qPrintable(logLevelString));
+				emit q->quit();
+				return;
+			}
+		}
+
 		if(options.contains("verbose"))
-			log_setOutputLevel(LOG_LEVEL_DEBUG);
-		else
-			log_setOutputLevel(LOG_LEVEL_INFO);
+			logLevel = LOG_LEVEL_DEBUG;
+
+		log_setOutputLevel(logLevel);
 
 		QString logFile = options.value("logfile");
 		if(!logFile.isEmpty())
