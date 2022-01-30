@@ -1,3 +1,9 @@
+zurl (1.11.1-1) UNRELEASED; urgency=medium
+
+  * Update debian/watch
+
+ -- Jan Niehusmann <jan@debian.org>  Sun, 30 Jan 2022 17:28:00 +0100
+
 zurl (1.11.0-2) unstable; urgency=medium
 
   * Create dbgsym package
