@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2018 Fanout, Inc.
+ * Copyright (C) 2014-2022 Fanout, Inc.
  * 
  * This file is part of Zurl.
  *
@@ -34,6 +34,7 @@
 #endif
 #include <QUrl>
 #include <QPointer>
+#include <QRandomGenerator>
 #include <QSslSocket>
 #include "log.h"
 #include "bufferlist.h"
@@ -330,7 +331,6 @@ public:
 	};
 
 	WebSocket *q;
-	QJDnsShared *dns;
 	AddressResolver *resolver;
 	State state;
 	QString connectHost;
@@ -364,10 +364,9 @@ public:
 	QList<WriteItem> pendingWrites;
 	int followedRedirects;
 
-	Private(WebSocket *_q, QJDnsShared *_dns) :
+	Private(WebSocket *_q) :
 		QObject(_q),
 		q(_q),
-		dns(_dns),
 		state(Idle),
 		trustConnectHost(false),
 		ignoreTlsErrors(false),
@@ -387,7 +386,7 @@ public:
 		pendingRead(false),
 		followedRedirects(0)
 	{
-		resolver = new AddressResolver(dns, this);
+		resolver = new AddressResolver(this);
 		connect(resolver, &AddressResolver::resultsReady, this, &Private::resolver_resultsReady);
 		connect(resolver, &AddressResolver::error, this, &Private::resolver_error);
 	}
@@ -515,7 +514,7 @@ public:
 	{
 		QByteArray out(16, 0);
 		for(int n = 0; n < out.size(); ++n)
-			out[n] = qrand() % 256;
+			out[n] = QRandomGenerator::global()->generate() % 256;
 
 		return out;
 	}
@@ -524,7 +523,7 @@ public:
 	{
 		QByteArray out(4, 0);
 		for(int n = 0; n < out.size(); ++n)
-			out[n] = qrand() % 256;
+			out[n] = QRandomGenerator::global()->generate() % 256;
 
 		return out;
 	}
@@ -889,8 +888,13 @@ private slots:
 		connect(sock, &QSslSocket::readyRead, this, &Private::sock_readyRead);
 		connect(sock, &QSslSocket::bytesWritten, this, &Private::sock_bytesWritten);
 		connect(sock, &QSslSocket::disconnected, this, &Private::sock_disconnected);
+#if QT_VERSION >= 0x060000
+		connect(sock, &QSslSocket::errorOccurred, this, &Private::sock_error);
+		connect(sock, &QSslSocket::sslErrors, this, &Private::sock_sslErrors);
+#else
 		connect(sock, static_cast<void (QSslSocket::*)(QAbstractSocket::SocketError)>(&QSslSocket::error), this, &Private::sock_error);
 		connect(sock, static_cast<void (QSslSocket::*)(const QList<QSslError> &)>(&QSslSocket::sslErrors), this, &Private::sock_sslErrors);
+#endif
 
 		bool useSsl = (requestUri.scheme() == "wss");
 		int port = requestUri.port(useSsl ? 443 : 80);
@@ -1161,10 +1165,10 @@ private slots:
 	}
 };
 
-WebSocket::WebSocket(QJDnsShared *dns, QObject *parent) :
+WebSocket::WebSocket(QObject *parent) :
 	QObject(parent)
 {
-	d = new Private(this, dns);
+	d = new Private(this);
 }
 
 WebSocket::~WebSocket()

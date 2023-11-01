@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Fanout, Inc.
+ * Copyright (C) 2012-2022 Fanout, Inc.
  *
  * This file is part of Zurl.
  *
@@ -38,7 +38,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 
-#include "qjdnsshared.h"
 #include "qzmqsocket.h"
 #include "qzmqreqmessage.h"
 #include "qzmqvalve.h"
@@ -51,7 +50,7 @@
 #include "log.h"
 #include "worker.h"
 
-#define VERSION "1.11.1"
+#define VERSION "1.12.0"
 
 static void cleanStringList(QStringList *in)
 {
@@ -191,8 +190,6 @@ public:
 	};
 
 	App *q;
-	QJDnsShared *dns;
-	QJDnsSharedDebug *dnsDebug;
 	QZmq::Socket *in_sock;
 	QZmq::Socket *in_stream_sock;
 	QZmq::Socket *out_sock;
@@ -207,8 +204,6 @@ public:
 	Private(App *_q) :
 		QObject(_q),
 		q(_q),
-		dns(0),
-		dnsDebug(0),
 		in_sock(0),
 		in_stream_sock(0),
 		out_sock(0),
@@ -220,22 +215,8 @@ public:
 		connect(ProcessQuit::instance(), &ProcessQuit::hup, this, &Private::reload);
 	}
 
-	~Private()
-	{
-		// delete workers before dns
-		qDeleteAll(workers);
-
-		if(dns)
-		{
-			// this will delete dns
-			QJDnsShared::waitForShutdown(QList<QJDnsShared*>() << dns);
-		}
-	}
-
 	void start()
 	{
-		qsrand(time(NULL));
-
 		QStringList args = QCoreApplication::instance()->arguments();
 		args.removeFirst();
 
@@ -401,17 +382,6 @@ public:
 
 		cleanStringList(&config.allowExps);
 		cleanStringList(&config.denyExps);
-
-		dnsDebug = new QJDnsSharedDebug(this);
-		connect(dnsDebug, &QJDnsSharedDebug::readyRead, this, &Private::dnsDebug_readyRead);
-
-		dns = new QJDnsShared(QJDnsShared::UnicastInternet, this);
-
-		if(log_outputLevel() >= LOG_LEVEL_DEBUG)
-			dns->setDebug(dnsDebug, "U");
-
-		dns->addInterface(QHostAddress::Any);
-		dns->addInterface(QHostAddress::AnyIPv6);
 
 		HttpRequest::setPersistentConnectionMaxTime(config.persistentConnectionMaxTime);
 
@@ -632,7 +602,7 @@ public:
 			seq = p.ids.first().seq;
 		}
 
-		Worker *w = new Worker(dns, &config, format, this);
+		Worker *w = new Worker(&config, format, this);
 		connect(w, &Worker::readyRead, this, &Private::worker_readyRead);
 		connect(w, &Worker::finished, this, &Private::worker_finished);
 
@@ -678,13 +648,6 @@ public:
 	}
 
 private slots:
-	void dnsDebug_readyRead()
-	{
-		QStringList lines = dnsDebug->readDebugLines();
-		foreach(const QString &line, lines)
-			log_debug("%s", qPrintable(line));
-	}
-
 	void in_readyRead(const QList<QByteArray> &message)
 	{
 		if(message.count() != 1)
