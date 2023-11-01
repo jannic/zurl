@@ -1,2 +1,5 @@
 version=4
-https://github.com/fanout/zurl/releases .*/zurl-(\d\S+)\.tar\.bz2
+opts="searchmode=plain,\
+filenamemangle=s%.*/v?@ANY_VERSION@/(.*)%$2%" \
+https://api.github.com/repos/fanout/zurl/releases?per_page=50 \
+https://github.com/fanout/zurl/releases/download/v(?:\d[\-+\.:\~\da-zA-Z]*)/zurl-@ANY_VERSION@\.tar\.bz2
