@@ -1,3 +1,9 @@
+zurl (1.12.0-2) unstable; urgency=medium
+
+  * timer_callback must return CURLM_OK on success (Closes: Bug#1103005)
+
+ -- Jan Niehusmann <jan@debian.org>  Sun, 01 Jun 2025 13:37:46 +0200
+
 zurl (1.12.0-1) unstable; urgency=medium
 
   * New upstream version 1.12.0
